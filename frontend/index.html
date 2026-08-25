@@ -4,22 +4,24 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>PARC IT</title>
-        <!-- Police Inter (Google Fonts) -->
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <!-- Police Inter — vendorisée localement (voir assets/vendor/fonts/inter/), plus de
+             dépendance à fonts.googleapis.com : évite un aller-retour réseau externe (lent
+             ou bloqué sur une mauvaise connexion) à chaque chargement de page. -->
+        <link href="assets/vendor/fonts/inter/inter.css" rel="stylesheet">
         <!-- CSS Principal -->
         <link rel="stylesheet" href="assets/css/style.css">
-        <!-- Font Awesome (pour les icônes) via CDN -->
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-        <!-- Chart.js pour les graphiques -->
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <!-- Librairies pour l'export -->
-        <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
-        <script src="https://unpkg.com/docx@7.3.0/build/index.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-        <!-- QRCode.js pour les étiquettes d'inventaire du matériel -->
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+        <!-- Font Awesome (icônes), vendorisé localement (assets/vendor/fontawesome/) : seule
+             la police "solid" est incluse, seul style utilisé dans l'app. -->
+        <link rel="stylesheet" href="assets/vendor/fontawesome/css/fontawesome.min.css">
+        <link rel="stylesheet" href="assets/vendor/fontawesome/css/solid.min.css">
+        <!-- Chart.js (graphiques), vendorisé localement — version figée 4.5.1 -->
+        <script src="assets/vendor/chartjs/chart.umd.min.js"></script>
+        <!-- Librairies pour l'export, vendorisées localement -->
+        <script src="assets/vendor/xlsx/xlsx.full.min.js"></script>
+        <script src="assets/vendor/docx/docx.min.js"></script>
+        <script src="assets/vendor/filesaver/FileSaver.min.js"></script>
+        <!-- QRCode.js pour les étiquettes d'inventaire du matériel, vendorisé localement -->
+        <script src="assets/vendor/qrcodejs/qrcode.min.js"></script>
     </head>
     <body>
         <!-- 1. Menu latéral (Sidebar) -->
@@ -84,6 +86,13 @@
                         style="display: none;"
                         data-page="taches"
                     ></span>
+                    <span
+                        id="late-tasks-badge"
+                        class="notification-badge late-tasks-badge"
+                        style="display: none;"
+                        data-page="taches"
+                        title="Vos tâches en retard"
+                    ></span>
                     <div class="user-menu">
                         <button id="user-menu-toggle">
                             <span class="user-icon-wrapper">
@@ -104,6 +113,11 @@
                                 <span id="user-role">Chargement...</span>
                             </div>
                             <hr>
+                            <button id="mon-profil-btn">
+                                <i class="fas fa-id-badge"></i>
+                                Mon profil
+                            </button>
+                            <hr>
                             <button id="logout-btn">
                                 <i class="fas fa-sign-out-alt"></i>
                                 Se déconnecter
@@ -114,6 +128,22 @@
             </header>
             <!-- =================== PAGE: TABLEAU DE BORD =================== -->
             <main id="dashboard-page" class="page-content active">
+                <!-- Filtre période : borne les indicateurs/graphiques liés aux tâches (pas
+                     l'état du parc matériel, ni "Mes tâches du jour" — voir field-hint). -->
+                <div class="dashboard-periode-bar">
+                    <div class="dashboard-periode-champs">
+                        <label for="dashboard-periode-debut">Du</label>
+                        <input type="date" id="dashboard-periode-debut">
+                        <label for="dashboard-periode-fin">au</label>
+                        <input type="date" id="dashboard-periode-fin">
+                        <button type="button" id="btn-dashboard-periode-appliquer" class="btn btn-primary">Appliquer</button>
+                        <button type="button" id="btn-dashboard-periode-annee" class="btn btn-secondary">Année en cours</button>
+                    </div>
+                    <div class="field-hint">
+                        S'applique aux tâches (cartes, graphiques, classements). L'état du parc matériel et le widget
+                        "Mes tâches du jour" restent toujours à jour, indépendamment de la période choisie.
+                    </div>
+                </div>
                 <!-- Cartes d'indicateurs clés -->
                 <div class="dashboard-cards">
                     <div class="card" id="card-materiel-total" data-page="materiel">
@@ -220,6 +250,21 @@
                     </div>
                     <div
                         class="card status-danger"
+                        id="card-taches-non-prises"
+                        data-page="taches"
+                        data-filter="non_prises_en_charge"
+                        title="Tâches 'À faire' jamais prises en charge depuis 3 jours ou plus"
+                    >
+                        <div class="card-icon">
+                            <i class="fas fa-user-clock"></i>
+                        </div>
+                        <div class="card-info">
+                            <div class="card-title">Non Prises en Charge (3j+)</div>
+                            <div class="card-value" id="taches-non-prises-en-charge">0</div>
+                        </div>
+                    </div>
+                    <div
+                        class="card status-danger"
                         id="card-materiel-pannes-sans-tache"
                         data-page="materiel"
                         data-filter="En panne"
@@ -235,6 +280,41 @@
                 </div>
                 <!-- Nouveaux indicateurs -->
                 <div class="dashboard-analytics">
+                    <!-- Mon activité personnelle + reconnaissance des agents -->
+                    <div class="analytics-row">
+                        <div class="analytics-card">
+                            <h3>
+                                <i class="fas fa-user-check"></i>
+                                Mes tâches du jour
+                            </h3>
+                            <div class="mes-taches-layout">
+                                <div class="efficacite-gauge" id="efficacite-gauge" title="Taux de résolution récent">
+                                    <div class="efficacite-gauge-value" id="efficacite-gauge-value">–</div>
+                                </div>
+                                <div class="mes-taches-body">
+                                    <div class="mes-taches-progress">
+                                        <div class="mes-taches-progress-bar" id="mes-taches-progress-bar" style="width: 0%;"></div>
+                                    </div>
+                                    <div class="mes-taches-progress-label" id="mes-taches-progress-label">Chargement…</div>
+                                    <div class="mes-taches-stats">
+                                        <div class="mes-taches-stat"><span id="mes-taches-a-faire">0</span>à faire</div>
+                                        <div class="mes-taches-stat"><span id="mes-taches-en-cours">0</span>en cours</div>
+                                        <div class="mes-taches-stat mes-taches-danger"><span id="mes-taches-retard">0</span>en retard</div>
+                                        <div class="mes-taches-stat mes-taches-warning"><span id="mes-taches-echeance">0</span>échéance proche</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="field-hint" id="efficacite-gauge-hint"></div>
+                        </div>
+                        <div class="analytics-card">
+                            <h3>
+                                <i class="fas fa-trophy"></i>
+                                Top Résolveurs (période sélectionnée)
+                            </h3>
+                            <div id="top-resolveurs-list">
+                                <!-- Données chargées dynamiquement --></div>
+                        </div>
+                    </div>
                     <div class="analytics-row">
                         <!-- Pannes récurrentes -->
                         <div class="analytics-card">
@@ -426,12 +506,35 @@
                         </select>
                         <span id="filtres-avances-badge" class="filtres-avances-badge" style="display:none;"></span>
                     </div>
+                    <div class="view-toggle">
+                        <button type="button" id="btn-vue-liste" class="btn-view active" title="Vue liste"><i class="fas fa-list"></i></button>
+                        <button type="button" id="btn-vue-kanban" class="btn-view" title="Vue Kanban"><i class="fas fa-columns"></i></button>
+                    </div>
                 </div>
                 <!-- Bouton flottant pour ouvrir les filtres avancés (priorité, matériel, périodes) -->
                 <a href="#" id="fab-filtres-taches" class="fab fab-secondary" title="Filtres avancés">
                     <i class="fas fa-filter" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);"></i>
                 </a>
-                <div class="table-container">
+                <!-- Vue Kanban : glisser-déposer une carte entre colonnes pour changer son statut -->
+                <div class="kanban-board" id="taches-kanban-view" style="display:none;">
+                    <div class="kanban-column" data-statut="À faire">
+                        <div class="kanban-column-header status-info">À faire <span class="kanban-count" id="kanban-count-a-faire">0</span></div>
+                        <div class="kanban-column-body" id="kanban-col-a-faire"></div>
+                    </div>
+                    <div class="kanban-column" data-statut="En cours">
+                        <div class="kanban-column-header status-warning">En cours <span class="kanban-count" id="kanban-count-en-cours">0</span></div>
+                        <div class="kanban-column-body" id="kanban-col-en-cours"></div>
+                    </div>
+                    <div class="kanban-column" data-statut="Terminé">
+                        <div class="kanban-column-header status-success">Terminé <span class="kanban-count" id="kanban-count-termine">0</span></div>
+                        <div class="kanban-column-body" id="kanban-col-termine"></div>
+                    </div>
+                    <div class="kanban-column" data-statut="Annulé">
+                        <div class="kanban-column-header status-danger">Annulé <span class="kanban-count" id="kanban-count-annule">0</span></div>
+                        <div class="kanban-column-body" id="kanban-col-annule"></div>
+                    </div>
+                </div>
+                <div class="table-container" id="taches-liste-view">
                     <table id="taches-table">
                         <thead>
                             <tr>
@@ -479,6 +582,13 @@
             </main>
             <!-- =================== PAGE: GESTION DES UTILISATEURS (NOUVEAU) =================== -->
             <main id="utilisateurs-page" class="page-content">
+                <!-- Réservé aux administrateurs : un utilisateur gère son propre compte via
+                     "Mon profil" (menu utilisateur), pas cette liste. -->
+                <div id="utilisateurs-acces-refuse" class="access-denied" style="display:none;">
+                    <i class="fas fa-lock"></i>
+                    Cette page est réservée aux administrateurs. Pour modifier votre compte, utilisez "Mon profil" dans le menu utilisateur.
+                </div>
+                <div id="utilisateurs-contenu">
                 <!--<h2>
                     Gestion des Utilisateurs
                     <span class="total-count" id="utilisateurs-total"></span>
@@ -499,7 +609,9 @@
                             <tr>
                                 <th>Nom Complet</th>
                                 <th>Login</th>
+                                <th>Email</th>
                                 <th>Rôle</th>
+                                <th title="Terminées / (Terminées + En retard) sur la fenêtre récente — visible des administrateurs uniquement">Efficacité</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -546,6 +658,161 @@
                         </tbody>
                     </table>
                 </div>
+                </div>
+            </main>
+            <!-- =================== PAGE: PARAMÈTRES (Admin uniquement) =================== -->
+            <main id="parametres-page" class="page-content">
+                <div id="parametres-acces-refuse" class="access-denied" style="display:none;">
+                    <i class="fas fa-lock"></i>
+                    Cette page est réservée aux administrateurs.
+                </div>
+                <form id="parametres-form">
+                    <div class="dashboard-analytics">
+                        <div class="analytics-row">
+                            <div class="analytics-card full-width">
+                                <h3><i class="fas fa-envelope"></i> Notifications par email</h3>
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="email_notifications_actives">
+                                    <label for="email_notifications_actives">Activer les notifications par email</label>
+                                </div>
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="email_on_nouvelle_tache_assignee">
+                                    <label for="email_on_nouvelle_tache_assignee">Envoyer un email lors de l'assignation d'une tâche</label>
+                                </div>
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="email_on_digest_quotidien">
+                                    <label for="email_on_digest_quotidien">Envoyer un résumé périodique des tâches en retard / à échéance proche</label>
+                                </div>
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="email_on_escalade">
+                                    <label for="email_on_escalade">Alerter par email les administrateurs des tâches non prises en charge</label>
+                                </div>
+                                <div class="form-group">
+                                    <label for="escalade_email_destinataires">Destinataires de l'alerte d'escalade</label>
+                                    <input type="text" id="escalade_email_destinataires" placeholder="email1@exemple.com, email2@exemple.com — vide = tous les comptes Administrateur">
+                                </div>
+                                <div class="field-hint">
+                                    Le résumé et l'alerte d'escalade sont envoyés par une tâche planifiée (cron) exécutant
+                                    <code>backend/scripts/send_email_reminders.php</code>, selon les fréquences ci-dessous.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="analytics-row">
+                            <div class="analytics-card full-width">
+                                <h3><i class="fas fa-server"></i> Configuration SMTP</h3>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="smtp_host">Serveur SMTP</label>
+                                        <input type="text" id="smtp_host" placeholder="smtp.exemple.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="smtp_port">Port</label>
+                                        <input type="number" id="smtp_port" placeholder="587">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="smtp_encryption">Chiffrement</label>
+                                        <select id="smtp_encryption">
+                                            <option value="tls">TLS (STARTTLS)</option>
+                                            <option value="ssl">SSL</option>
+                                            <option value="none">Aucun</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="smtp_username">Nom d'utilisateur</label>
+                                        <input type="text" id="smtp_username" autocomplete="off">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="smtp_password">Mot de passe</label>
+                                        <input type="password" id="smtp_password" autocomplete="new-password" placeholder="Laisser vide pour conserver le mot de passe actuel">
+                                        <div class="field-hint" id="smtp_password_hint"></div>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="smtp_from_email">Adresse d'expédition</label>
+                                        <input type="email" id="smtp_from_email" placeholder="parc-info@exemple.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="smtp_from_name">Nom d'expéditeur</label>
+                                        <input type="text" id="smtp_from_name" placeholder="Parc Info">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="parametres-test-email">Tester l'envoi</label>
+                                    <div class="test-email-row">
+                                        <input type="email" id="parametres-test-email" placeholder="adresse@exemple.com">
+                                        <button type="button" id="btn-test-email" class="btn btn-secondary">Envoyer un test</button>
+                                    </div>
+                                    <div class="field-hint" id="parametres-test-email-resultat"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="analytics-row">
+                            <div class="analytics-card">
+                                <h3><i class="fas fa-sliders-h"></i> Seuils métier</h3>
+                                <div class="form-group">
+                                    <label for="seuil_echeance_proche_jours">Échéance proche (jours)</label>
+                                    <input type="number" min="1" id="seuil_echeance_proche_jours">
+                                </div>
+                                <div class="form-group">
+                                    <label for="seuil_non_prise_en_charge_jours">Non prise en charge (jours)</label>
+                                    <input type="number" min="1" id="seuil_non_prise_en_charge_jours">
+                                </div>
+                                <div class="form-group">
+                                    <label for="seuil_tache_dormante_jours">Tâche dormante (jours)</label>
+                                    <input type="number" min="1" id="seuil_tache_dormante_jours">
+                                </div>
+                            </div>
+                            <div class="analytics-card">
+                                <h3><i class="fas fa-clock"></i> Fréquences</h3>
+                                <div class="form-group">
+                                    <label for="intervalle_rafraichissement_secondes">Rafraîchissement de l'interface (secondes)</label>
+                                    <input type="number" min="10" id="intervalle_rafraichissement_secondes">
+                                    <div class="field-hint">Prend effet au prochain rechargement de la page.</div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="frequence_digest_heures">Résumé par email (heures minimum entre deux envois)</label>
+                                    <input type="number" min="1" id="frequence_digest_heures">
+                                </div>
+                                <div class="form-group">
+                                    <label for="frequence_escalade_heures">Alerte d'escalade (heures minimum entre deux envois)</label>
+                                    <input type="number" min="1" id="frequence_escalade_heures">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="analytics-row">
+                            <div class="analytics-card">
+                                <h3><i class="fas fa-gauge-high"></i> Jauge d'efficacité</h3>
+                                <div class="form-group">
+                                    <label for="efficacite_fenetre_jours">Fenêtre glissante (jours)</label>
+                                    <input type="number" min="1" id="efficacite_fenetre_jours">
+                                    <div class="field-hint">Tâches assignées depuis moins de N jours prises en compte dans le calcul.</div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="efficacite_seuil_bon">Seuil "vert" (% mini)</label>
+                                        <input type="number" min="0" max="100" id="efficacite_seuil_bon">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="efficacite_seuil_moyen">Seuil "jaune" (% mini)</label>
+                                        <input type="number" min="0" max="100" id="efficacite_seuil_moyen">
+                                    </div>
+                                </div>
+                                <div class="field-hint">
+                                    Efficacité = Terminées / (Terminées + En retard) sur la fenêtre ci-dessus. En-dessous
+                                    du seuil "jaune" : rouge. Visible par chaque utilisateur pour lui-même (tableau de
+                                    bord) et par les administrateurs pour tous (liste des utilisateurs).
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="parametres-actions">
+                        <button type="submit" class="btn btn-primary">Enregistrer</button>
+                        <span class="field-hint" id="parametres-save-status"></span>
+                    </div>
+                </form>
             </main>
         </div>
         <!-- Conteneur des notifications pop (toasts) -->
@@ -580,6 +847,15 @@
                         <label for="filter-taches-materiel">Matériel concerné</label>
                         <select id="filter-taches-materiel">
                             <option value="">Tout le matériel</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="filter-dormance">Tâches dormantes</label>
+                        <select id="filter-dormance" title="Tâches À faire / En cours sans mise à jour depuis N jours">
+                            <option value="">Toutes les tâches</option>
+                            <option value="7">Inactives depuis 7 jours+</option>
+                            <option value="14">Inactives depuis 14 jours+</option>
+                            <option value="30">Inactives depuis 30 jours+</option>
                         </select>
                     </div>
                     <div class="form-row">
@@ -708,7 +984,7 @@
             </div>
         </div>
         <!-- jQuery via CDN -->
-        <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+        <script src="assets/vendor/jquery/jquery-3.7.1.min.js"></script>
         <!-- Script personnalisé -->
         <script src="assets/js/script.js"></script>
     </body>

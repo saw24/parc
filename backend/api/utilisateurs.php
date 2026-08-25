@@ -1,6 +1,7 @@
 <?php
 // Inclusion du fichier de connexion à la base de données
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/parametres.php';
 require_once __DIR__ . '/../middleware/auth.php';
 $currentUser = require_auth($pdo);
 
@@ -20,22 +21,65 @@ switch ($action) {
     // BLOC POUR LA LECTURE
     // ===============================================
     case 'read':
+        // Lister TOUS les utilisateurs est réservé aux administrateurs (fuite de logins/
+        // emails sinon). Un utilisateur non-admin ne peut lire que sa propre fiche, via
+        // ?id=... — c'est déjà ce que fait le frontend (loadUtilisateurs()) pour ce rôle.
+        if (!isset($_GET['id'])) {
+            require_role($currentUser, ['Administrateur']);
+        }
+
         try {
             // Le mot de passe (haché) n'est jamais renvoyé au client, même en interne :
             // on sélectionne explicitement les colonnes plutôt que SELECT *.
-            $userColumns = "id, nom, login, role, date_creation, updated_by_login, created_by_login, date_modification";
+            $userColumns = "u.id, u.nom, u.login, u.email, u.role, u.date_creation, u.updated_by_login, u.created_by_login, u.date_modification";
+
+            // Jauge d'efficacité (Terminées / (Terminées + En retard) sur la fenêtre
+            // configurée) : calculée uniquement pour les administrateurs (voir
+            // isAdmin plus bas) — un utilisateur voit la sienne via son propre tableau
+            // de bord (taches.php::user_task_stats), jamais celle des autres ici.
+            $isAdmin = ($currentUser['role'] === 'Administrateur');
+            $effJoin = '';
+            $effColumns = '';
+            $effParams = [];
+            if ($isAdmin) {
+                $params = get_parametres($pdo);
+                $fenetreEfficacite = (int) $params['efficacite_fenetre_jours'];
+                $effColumns = ", COALESCE(eff.resolues, 0) as eff_resolues, COALESCE(eff.en_retard, 0) as eff_en_retard";
+                $effJoin = "
+                    LEFT JOIN (
+                        SELECT
+                            assigne_a,
+                            SUM(CASE WHEN statut = 'Terminé' THEN 1 ELSE 0 END) as resolues,
+                            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                                     AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
+                                THEN 1 ELSE 0 END) as en_retard
+                        FROM t_taches
+                        WHERE date_creation >= NOW() - (? || ' days')::interval
+                        GROUP BY assigne_a
+                    ) eff ON eff.assigne_a = u.nom
+                ";
+                $effParams = [$fenetreEfficacite];
+            }
 
             if (isset($_GET['id'])) {
-                $stmt = $pdo->prepare("SELECT $userColumns FROM t_utilisateurs WHERE id = ?");
-                $stmt->execute([$_GET['id']]);
+                $stmt = $pdo->prepare("SELECT $userColumns $effColumns FROM t_utilisateurs u $effJoin WHERE u.id = ?");
+                $stmt->execute(array_merge($effParams, [$_GET['id']]));
                 $utilisateurs = $stmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
-                // Requête pour récupérer tous les utilisateurs
-                $sql = "SELECT $userColumns FROM t_utilisateurs ORDER BY nom ASC";
+                $sql = "SELECT $userColumns $effColumns FROM t_utilisateurs u $effJoin ORDER BY u.nom ASC";
                 $stmt = $pdo->prepare($sql);
-                $stmt->execute();
-                // Récupération des résultats
+                $stmt->execute($effParams);
                 $utilisateurs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            if ($isAdmin) {
+                foreach ($utilisateurs as &$u) {
+                    $pct = compute_efficacite_pct((int) $u['eff_resolues'], (int) $u['eff_en_retard']);
+                    $u['efficacite_pct'] = $pct;
+                    $u['efficacite_zone'] = efficacite_zone($pct, $params);
+                    unset($u['eff_resolues'], $u['eff_en_retard']);
+                }
+                unset($u);
             }
 
             // Envoi des résultats au format JSON
@@ -69,6 +113,7 @@ switch ($action) {
         // On récupère les données du formulaire
         $nom = isset($_POST['nom']) ? $_POST['nom'] : '';
         $login = isset($_POST['login']) ? $_POST['login'] : '';
+        $email = isset($_POST['email']) ? $_POST['email'] : '';
         $role = isset($_POST['role']) ? $_POST['role'] : '';
         $mot_de_passe = isset($_POST['mot_de_passe']) ? $_POST['mot_de_passe'] : '';
         $created_by_login = isset($_POST['created_by_login']) ? $_POST['created_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
@@ -118,11 +163,11 @@ switch ($action) {
             $hashed_password = password_hash($mot_de_passe, PASSWORD_DEFAULT);
 
             // Requête d'insertion préparée
-            $sql = "INSERT INTO t_utilisateurs (nom, login, role, mot_de_passe, created_by_login) VALUES (?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO t_utilisateurs (nom, login, email, role, mot_de_passe, created_by_login) VALUES (?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
 
             // Exécution de la requête avec les valeurs
-            $result = $stmt->execute([$nom, $login, $role, $hashed_password, $created_by_login]);
+            $result = $stmt->execute([$nom, $login, $email, $role, $hashed_password, $created_by_login]);
 
             if ($result) {
                 // On récupère l'ID de l'utilisateur créé
@@ -166,6 +211,7 @@ switch ($action) {
         $id = isset($_POST['id']) ? $_POST['id'] : '';
         $nom = isset($_POST['nom']) ? $_POST['nom'] : '';
         $login = isset($_POST['login']) ? $_POST['login'] : '';
+        $email = isset($_POST['email']) ? $_POST['email'] : '';
         $role = isset($_POST['role']) ? $_POST['role'] : '';
         $mot_de_passe = isset($_POST['mot_de_passe']) ? $_POST['mot_de_passe'] : '';
         $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
@@ -226,14 +272,14 @@ switch ($action) {
             if (!empty($mot_de_passe)) {
                 // Hachage du nouveau mot de passe
                 $hashed_password = password_hash($mot_de_passe, PASSWORD_DEFAULT);
-                $sql = "UPDATE t_utilisateurs SET nom = ?, login = ?, role = ?, mot_de_passe = ?, updated_by_login = ? WHERE id = ?";
+                $sql = "UPDATE t_utilisateurs SET nom = ?, login = ?, email = ?, role = ?, mot_de_passe = ?, updated_by_login = ? WHERE id = ?";
                 $stmt = $pdo->prepare($sql);
-                $result = $stmt->execute([$nom, $login, $role, $hashed_password, $updated_by_login, $id]);
+                $result = $stmt->execute([$nom, $login, $email, $role, $hashed_password, $updated_by_login, $id]);
             } else {
                 // Mise à jour sans changer le mot de passe
-                $sql = "UPDATE t_utilisateurs SET nom = ?, login = ?, role = ?, updated_by_login = ? WHERE id = ?";
+                $sql = "UPDATE t_utilisateurs SET nom = ?, login = ?, email = ?, role = ?, updated_by_login = ? WHERE id = ?";
                 $stmt = $pdo->prepare($sql);
-                $result = $stmt->execute([$nom, $login, $role, $updated_by_login, $id]);
+                $result = $stmt->execute([$nom, $login, $email, $role, $updated_by_login, $id]);
             }
 
             if ($result) {

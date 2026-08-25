@@ -5,17 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connexion - Gestion de Parc Informatique</title>
 
-    <!-- Police Inter (Google Fonts) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Police Inter — vendorisée localement (voir assets/vendor/fonts/inter/) -->
+    <link href="assets/vendor/fonts/inter/inter.css" rel="stylesheet">
 
     <!-- CSS Principal -->
     <link rel="stylesheet" href="assets/css/style.css">
 
-    <!-- Font Awesome (pour les icônes) via CDN -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    
+    <!-- Font Awesome (icônes), vendorisé localement : seul le style "solid" est inclus -->
+    <link rel="stylesheet" href="assets/vendor/fontawesome/css/fontawesome.min.css">
+    <link rel="stylesheet" href="assets/vendor/fontawesome/css/solid.min.css">
+
     <style>
         /* Styles spécifiques pour la page de connexion — mêmes tokens que le
            reste de l'application (voir assets/css/style.css :root) */
@@ -219,7 +218,7 @@
     </div>
 
     <!-- jQuery via CDN -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="assets/vendor/jquery/jquery-3.7.1.min.js"></script>
     
     <!-- Script de connexion -->
     <script src="assets/js/login.js"></script>

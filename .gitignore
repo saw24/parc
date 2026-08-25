@@ -1,5 +1,7 @@
 .DS_Store
 .env
 node_modules/
-vendor/
+# Dépendances Composer PHP (backend) — pas les libs JS/CSS vendorisées du frontend,
+# qui elles font partie de l'app livrée (voir frontend/assets/vendor/).
+/backend/vendor/
 *.log

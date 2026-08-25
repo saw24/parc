@@ -224,7 +224,8 @@ header h1 {
   color: var(--color-text-muted);
 }
 
-#logout-btn {
+#logout-btn,
+#mon-profil-btn {
   width: 100%;
   padding: 12px 15px;
   background: none;
@@ -234,15 +235,27 @@ header h1 {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--color-danger);
   transition: background-color 0.2s;
+}
+
+#logout-btn {
+  color: var(--color-danger);
+}
+
+#mon-profil-btn {
+  color: var(--color-text);
 }
 
 #logout-btn:hover {
   background-color: var(--color-danger-bg);
 }
 
-#logout-btn i {
+#mon-profil-btn:hover {
+  background-color: var(--color-bg);
+}
+
+#logout-btn i,
+#mon-profil-btn i {
   font-size: 0.9rem;
 }
 
@@ -366,6 +379,11 @@ thead th {
 tbody tr:hover {
   background-color: var(--color-bg);
 }
+/* Ligne entière cliquable (ouvre la modification) sur la liste des tâches — pratique au
+   doigt sur mobile, pas besoin de viser le crayon. */
+#taches-table tbody tr {
+  cursor: pointer;
+}
 .status-badge {
   padding: 4px 8px;
   border-radius: var(--radius-pill);
@@ -405,6 +423,17 @@ tbody tr:hover {
 }
 .in-progress-tasks-badge {
   background-color: var(--color-warning);
+}
+.late-tasks-badge {
+  background-color: var(--color-danger);
+}
+
+/* Âge de la tâche (affiché sous le titre) */
+.tache-age {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: normal;
 }
 
 /* Badge de nouvelles tâches positionné sur l'icône utilisateur */
@@ -493,6 +522,281 @@ tbody tr:hover {
 }
 .actions .btn-delete {
   color: var(--color-danger);
+}
+.actions .btn-quick-take {
+  color: var(--color-info);
+}
+.actions .btn-quick-done {
+  color: var(--color-success);
+}
+
+/* --- Sélecteur de matériel de la fiche Tâche (filtre + recherche + ajout à la volée) --- */
+.materiel-picker-filters {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.materiel-picker-filters select {
+  flex: 0 0 40%;
+}
+.materiel-picker-filters input {
+  flex: 1;
+}
+.inline-subform {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg);
+}
+.inline-subform-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* --- Bascule Vue Liste / Vue Kanban (page Tâches) --- */
+.view-toggle {
+  display: flex;
+  gap: 4px;
+}
+.btn-view {
+  background: var(--card-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.btn-view.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+/* --- Vue Kanban des tâches --- */
+.kanban-board {
+  display: flex;
+  gap: 15px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+.kanban-column {
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  flex: 1 1 0;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+.kanban-column-header {
+  padding: 10px 14px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.kanban-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+  font-size: 0.8rem;
+}
+.kanban-column-body {
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 80px;
+}
+.kanban-column-body.drag-over {
+  background: var(--color-info-bg);
+  outline: 2px dashed var(--color-info);
+  outline-offset: -2px;
+}
+.kanban-card {
+  background: var(--card-bg);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  cursor: grab;
+}
+.kanban-card.dragging {
+  opacity: 0.4;
+}
+.kanban-card-title {
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+.kanban-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.kanban-card-assignee {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+/* --- Filtre période du tableau de bord --- */
+.dashboard-periode-bar {
+  margin-bottom: 20px;
+}
+.dashboard-periode-champs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: 6px;
+}
+.dashboard-periode-champs label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.dashboard-periode-champs input[type="date"] {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  color: var(--color-text);
+  background-color: var(--color-surface);
+}
+
+/* --- Widget "Mes tâches du jour" (dashboard) --- */
+.mes-taches-layout {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.mes-taches-body {
+  flex: 1;
+  min-width: 0;
+}
+/* Jauge d'efficacité : anneau en conic-gradient (couleur/angle posés en JS), pas de SVG.
+   Volontairement distincte de la barre de progression ci-contre : l'une mesure l'activité
+   du jour, l'autre un taux de résolution sur une fenêtre plus large — deux échelles de
+   temps différentes, pas à confondre visuellement. */
+.efficacite-gauge {
+  flex-shrink: 0;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: conic-gradient(var(--color-border) 0deg 360deg);
+}
+.efficacite-gauge::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--card-bg);
+}
+.efficacite-gauge-value {
+  position: relative;
+  z-index: 1;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+.mes-taches-progress {
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.mes-taches-progress-bar {
+  height: 100%;
+  background: var(--color-success);
+  border-radius: var(--radius-pill);
+  transition: width 0.4s ease;
+}
+.mes-taches-progress-label {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin-bottom: 15px;
+}
+.mes-taches-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+.mes-taches-stat {
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+.mes-taches-stat span {
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-right: 4px;
+}
+.mes-taches-stat.mes-taches-danger span {
+  color: var(--color-danger);
+}
+.mes-taches-stat.mes-taches-warning span {
+  color: var(--color-warning);
+}
+
+/* --- Page Paramètres (admin) --- */
+.form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--space-4);
+}
+.form-checkbox input[type="checkbox"] {
+  width: auto;
+  flex-shrink: 0;
+}
+.form-checkbox label {
+  margin-bottom: 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+.field-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+}
+.field-hint code {
+  background: var(--color-bg);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+.test-email-row {
+  display: flex;
+  gap: 10px;
+}
+.test-email-row input {
+  flex: 1;
+}
+.parametres-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 10px;
+}
+.access-denied {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 60px 20px;
+  font-size: 1.05rem;
+}
+.access-denied i {
+  display: block;
+  font-size: 2rem;
+  margin-bottom: 12px;
+  color: var(--color-border);
 }
 
 /* --- Bouton Flottant (FAB) --- */
@@ -781,6 +1085,7 @@ tbody tr:hover {
 .panne-info,
 .service-info {
   flex: 1;
+  min-width: 0; /* permet à panne-details de se tronquer dans un flex item */
 }
 
 .panne-title,
@@ -794,6 +1099,10 @@ tbody tr:hover {
 .service-stats {
   font-size: 0.9rem;
   color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .panne-count,
@@ -826,6 +1135,11 @@ tbody tr:hover {
   color: var(--color-text-muted);
   font-style: italic;
   padding: 20px;
+}
+/* Valeur indisponible en ligne dans une cellule de tableau (ex: efficacité non calculée
+   pour un utilisateur non-admin consultant sa propre fiche) — sans le padding de .no-data. */
+.no-data-inline {
+  color: var(--color-text-muted);
 }
 
 /* État d'erreur dans un tableau (remplace les anciens style="color:red" en ligne) */

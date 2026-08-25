@@ -19,6 +19,64 @@ $.ajaxPrefilter(function (options) {
 
 $(document).ready(function () {
 
+    // --- Paramètres applicatifs (seuils/fréquences), configurables depuis l'écran
+    // Paramètres (admin) plutôt que codés en dur. Valeurs de secours ci-dessous au cas
+    // où l'API serait indisponible ou l'utilisateur pas encore authentifié ; écrasées par
+    // loadAppParametres() (appel synchrone, volontairement, pour éviter toute course avec
+    // le reste de l'initialisation qui en dépend).
+    let appParams = {
+        seuil_echeance_proche_jours: 3,
+        seuil_non_prise_en_charge_jours: 3,
+        seuil_tache_dormante_jours: 7,
+        intervalle_rafraichissement_secondes: 30,
+        efficacite_fenetre_jours: 30
+    };
+
+    // Filtre période du tableau de bord (année civile en cours par défaut). S'applique aux
+    // indicateurs/graphiques liés aux tâches ; pas à l'état du parc matériel (inventaire
+    // courant) ni au widget personnel "Mes tâches du jour" (liste d'action "maintenant").
+    function premierJourAnnee() {
+        return `${new Date().getFullYear()}-01-01`;
+    }
+    function dernierJourAnnee() {
+        return `${new Date().getFullYear()}-12-31`;
+    }
+    let dashboardPeriode = {
+        debut: premierJourAnnee(),
+        fin: dernierJourAnnee()
+    };
+    function periodeQueryString() {
+        return `&debut=${dashboardPeriode.debut}&fin=${dashboardPeriode.fin}`;
+    }
+
+    function loadAppParametres() {
+        $.ajax({
+            url: '../backend/api/parametres.php?action=public',
+            type: 'GET',
+            dataType: 'json',
+            async: false, // bootstrap : le reste de l'init utilise ces valeurs dès le départ
+            success: function (data) {
+                appParams = $.extend(appParams, data);
+            },
+            error: function () {
+                console.error('Paramètres applicatifs indisponibles, valeurs par défaut utilisées.');
+            }
+        });
+    }
+    loadAppParametres();
+
+    // Écran Paramètres réservé aux Administrateurs (contient la config SMTP) : masqué du
+    // menu pour tout autre rôle. Appliqué tout de suite avec le rôle en cache (évite un
+    // flash du lien avant la réponse serveur), puis reconfirmé dans loadUserInfo().
+    function applyAdminOnlyUI(role) {
+        const estAdmin = role === 'Administrateur';
+        $('.sidebar-menu a[href="#parametres"]').closest('li').toggle(estAdmin);
+        // Gestion des utilisateurs (même la propre fiche d'un non-admin) : réservée aux
+        // admins désormais — un utilisateur passe par "Mon profil" pour la sienne.
+        $('.sidebar-menu a[href="#utilisateurs"]').closest('li').toggle(estAdmin);
+    }
+    applyAdminOnlyUI(localStorage.getItem('user_role'));
+
     // --- GESTION DE L'AUTHENTIFICATION ---
 
     // Vérifier si l'utilisateur est connecté
@@ -48,7 +106,7 @@ $(document).ready(function () {
                 if (response.success) {
                     // Session valide, charger les informations utilisateur
                     loadUserInfo();
-                    loadTaskNotifications(); // Charger les notifications de tâches
+                    loadTaskNotifications(true); // Badges + résumé/escalade (arrivée sur le tableau de bord)
                 } else {
                     // Session invalide, rediriger vers la page de connexion
                     clearSession();
@@ -86,6 +144,7 @@ $(document).ready(function () {
                     if (response.user.login) {
                         localStorage.setItem('user_login', response.user.login);
                     }
+                    applyAdminOnlyUI(response.user.role);
                 }
             },
             error: function() {
@@ -96,8 +155,10 @@ $(document).ready(function () {
 
     // --- Notifications pop (toasts) ---
     // Affiche une notification qui disparaît d'elle-même après quelques secondes.
-    // Cliquer dessus (ou sur la croix) la ferme immédiatement.
-    function showToast(title, message, icon = 'fa-bell') {
+    // Cliquer dessus (ou sur la croix) la ferme immédiatement. Si `onClick` est fourni,
+    // cliquer sur le corps du toast déclenche cette action avant de le fermer (ex: aller
+    // directement voir la liste des tâches concernées).
+    function showToast(title, message, icon = 'fa-bell', onClick = null) {
         const $container = $('#toast-container');
         const $toast = $(`
             <div class="toast">
@@ -115,9 +176,25 @@ $(document).ready(function () {
             setTimeout(() => $toast.remove(), 250);
         }
 
-        $toast.on('click', fermer);
+        $toast.on('click', function (e) {
+            if (onClick && !$(e.target).closest('.toast-close').length) {
+                onClick();
+            }
+            fermer();
+        });
         $container.append($toast);
         setTimeout(fermer, 6000);
+    }
+
+    // Navigue vers la page Tâches (vue liste) avec un filtre de date/statut appliqué —
+    // réutilisé par les badges du header et les toasts d'alerte pour rendre chaque
+    // notification directement actionnable.
+    function goToTachesFiltered(filterDateValue) {
+        $(`.sidebar-menu a[href="#taches"]`).click();
+        $('#btn-vue-liste').trigger('click');
+        $('#filter-statut').val('');
+        $('#filter-priorite').val('');
+        setTimeout(() => loadTaches(filterDateValue), 0);
     }
 
     // Mémorise les tâches déjà notifiées (par utilisateur), pour ne notifier qu'une
@@ -135,8 +212,11 @@ $(document).ready(function () {
         localStorage.setItem(`notified_task_ids_${userId}`, JSON.stringify(ids));
     }
 
-    // Fonction pour charger les notifications de tâches
-    function loadTaskNotifications() {
+    // Fonction pour charger les notifications de tâches. `showReminders` déclenche en plus
+    // le résumé quotidien et l'alerte d'escalade (toasts) — réservé aux moments où
+    // l'utilisateur arrive/revient sur le tableau de bord, pas au rafraîchissement
+    // silencieux des badges toutes les 30 secondes.
+    function loadTaskNotifications(showReminders) {
         const userName   = localStorage.getItem('user_name');
         if (!userName) return;
 
@@ -145,7 +225,17 @@ $(document).ready(function () {
             type: 'GET',
             dataType: 'json',
             success: function (stats) {
-                const { new_tasks, in_progress_tasks, new_tasks_list } = stats;
+                const { new_tasks, in_progress_tasks, late_tasks, echeance_proche_tasks, completed_today, new_tasks_list } = stats;
+
+                // Widget personnel "Mes tâches du jour" (tableau de bord)
+                updateMesTachesWidget(stats);
+
+                if (showReminders) {
+                    // Résumé + relance des tâches non prises en charge, à chaque retour
+                    // sur le tableau de bord (et à la connexion) — pas en continu.
+                    showTasksDigestToast(stats);
+                    checkEscalations();
+                }
 
                 // Badge pour les nouvelles tâches (positionné sur l'icône utilisateur)
                 const $newBadge = $('#new-tasks-badge');
@@ -161,6 +251,14 @@ $(document).ready(function () {
                     $inProgressBadge.text(in_progress_tasks).show();
                 } else {
                     $inProgressBadge.hide();
+                }
+
+                // Badge pour les tâches en retard (assignées à l'utilisateur courant)
+                const $lateBadge = $('#late-tasks-badge');
+                if (late_tasks > 0) {
+                    $lateBadge.html(`<i class="fas fa-exclamation-triangle"></i> ${late_tasks > 99 ? '99+' : late_tasks}`).show();
+                } else {
+                    $lateBadge.hide();
                 }
 
                 // Notification pop pour chaque tâche "À faire" pas encore notifiée
@@ -188,6 +286,115 @@ $(document).ready(function () {
         });
     }
 
+    // Met à jour le widget "Mes tâches du jour" du tableau de bord : barre de progression
+    // (tâches terminées aujourd'hui vs. encore actives) + compteurs par catégorie.
+    function updateMesTachesWidget(stats) {
+        const $widget = $('#mes-taches-progress-bar');
+        if ($widget.length === 0) return; // widget absent de la page courante
+
+        const { new_tasks, in_progress_tasks, late_tasks, echeance_proche_tasks, completed_today } = stats;
+        const totalActif = new_tasks + in_progress_tasks;
+        const totalEnJeu = totalActif + completed_today;
+        const pct = totalEnJeu > 0 ? Math.round((completed_today / totalEnJeu) * 100) : 0;
+
+        $('#mes-taches-progress-bar').css('width', pct + '%');
+
+        let label;
+        if (totalActif > 0) {
+            label = `${completed_today} terminée(s) aujourd'hui — ${totalActif} encore active(s)`;
+        } else if (completed_today > 0) {
+            label = `${completed_today} terminée(s) aujourd'hui — bravo, tout est à jour !`;
+        } else {
+            label = 'Aucune tâche active pour le moment.';
+        }
+        $('#mes-taches-progress-label').text(label);
+
+        $('#mes-taches-a-faire').text(new_tasks);
+        $('#mes-taches-en-cours').text(in_progress_tasks);
+        $('#mes-taches-retard').text(late_tasks);
+        $('#mes-taches-echeance').text(echeance_proche_tasks);
+
+        updateEfficaciteGauge(stats.efficacite_pct, stats.efficacite_zone);
+    }
+
+    // Couleur associée à chaque zone d'efficacité (mêmes seuils que le backend, calculés
+    // côté serveur — voir backend/config/parametres.php::efficacite_zone).
+    const EFFICACITE_COULEURS = {
+        bon: 'var(--color-success)',
+        moyen: 'var(--color-warning)',
+        mauvais: 'var(--color-danger)'
+    };
+
+    // Met à jour l'anneau d'efficacité (widget "Mes tâches du jour"). `pct`/`zone` peuvent
+    // être null (pas assez de données sur la fenêtre configurée).
+    function updateEfficaciteGauge(pct, zone) {
+        const $gauge = $('#efficacite-gauge');
+        if ($gauge.length === 0) return;
+
+        const fenetre = appParams.efficacite_fenetre_jours;
+
+        if (pct === null || pct === undefined) {
+            $gauge.css('background', 'conic-gradient(var(--color-border) 0deg 360deg)');
+            $('#efficacite-gauge-value').text('–');
+            $('#efficacite-gauge-hint').text(`Pas encore assez de tâches résolues sur les ${fenetre} derniers jours pour calculer un taux.`);
+            return;
+        }
+
+        const couleur = EFFICACITE_COULEURS[zone] || 'var(--color-border)';
+        const angle = Math.max(0, Math.min(360, Math.round(pct * 3.6)));
+        $gauge.css('background', `conic-gradient(${couleur} 0deg ${angle}deg, var(--color-border) ${angle}deg 360deg)`);
+        $('#efficacite-gauge-value').text(pct + '%');
+        $('#efficacite-gauge-hint').text(`Efficacité sur les ${fenetre} derniers jours : tâches terminées / (terminées + en retard).`);
+    }
+
+    // Affiche un résumé des tâches en retard/à échéance proche — appelé à chaque retour
+    // sur le tableau de bord (voir `showReminders` dans loadTaskNotifications), pas juste
+    // à la connexion, pour relancer même sans nouvelle tâche assignée. Cliquer dessus
+    // amène directement à la liste concernée.
+    function showTasksDigestToast(stats) {
+        const { late_tasks, echeance_proche_tasks, in_progress_tasks } = stats;
+        if (late_tasks > 0 || echeance_proche_tasks > 0) {
+            const parts = [];
+            if (late_tasks > 0) parts.push(`${late_tasks} en retard`);
+            if (echeance_proche_tasks > 0) parts.push(`${echeance_proche_tasks} à échéance proche`);
+            const enCoursSuffix = in_progress_tasks > 0 ? ` (${in_progress_tasks} en cours)` : '';
+            showToast(
+                'Résumé de vos tâches',
+                `Vous avez ${parts.join(' et ')}.${enCoursSuffix} Cliquez pour voir la liste.`,
+                'fa-clipboard-list',
+                () => goToTachesFiltered(late_tasks > 0 ? 'en_retard' : 'echeance_proche')
+            );
+        }
+    }
+
+    // Relance les administrateurs, à chaque retour sur le tableau de bord, sur les tâches
+    // "À faire" jamais prises en charge depuis plusieurs jours — pas de notion de manager
+    // dans le schéma, donc on notifie tous les comptes Administrateur. Cliquer sur le toast
+    // amène directement à la liste (voir aussi la carte "Non prises en charge" du dashboard,
+    // visible à tout moment sans attendre cette alerte).
+    function checkEscalations() {
+        if (localStorage.getItem('user_role') !== 'Administrateur') return;
+
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=escalations',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                const taches = Array.isArray(data.taches) ? data.taches : [];
+                if (taches.length === 0) return;
+                showToast(
+                    'Tâches non prises en charge',
+                    `${taches.length} tâche(s) "À faire" depuis plus de ${data.seuil_jours} jours sans prise en charge. Cliquez pour voir la liste.`,
+                    'fa-triangle-exclamation',
+                    () => goToTachesFiltered('non_prises_en_charge')
+                );
+            },
+            error: function (xhr, status, error) {
+                console.error("Erreur lors de la vérification des escalades:", error);
+            }
+        });
+    }
+
     // Ajout des gestionnaires d'événements pour les badges
     $(document).on('click', '#new-tasks-badge', function(e) {
         e.stopPropagation(); // Évite de déclencher aussi l'ouverture du menu utilisateur
@@ -196,6 +403,7 @@ $(document).ready(function () {
         if (page) {
             // Simuler un clic sur le menu pour changer de page
             $(`.sidebar-menu a[href="#${page}"]`).click();
+            $('#btn-vue-liste').trigger('click'); // Les filtres ne s'appliquent qu'en vue liste
             $('#filter-statut').val('À faire').change(); // On met le filtre sur 'À faire'
         }
 
@@ -208,10 +416,20 @@ $(document).ready(function () {
         if (page) {
             // Simuler un clic sur le menu pour changer de page
             $(`.sidebar-menu a[href="#${page}"]`).click();
+            $('#btn-vue-liste').trigger('click');
             $('#filter-statut').val('En cours').change(); // On met le filtre sur 'En cours'
         }
-        
-        
+
+
+    });
+
+    $(document).on('click', '#late-tasks-badge', function(e) {
+        e.stopPropagation();
+        const page = $(this).data('page');
+
+        if (page) {
+            goToTachesFiltered('en_retard');
+        }
     });
 
 
@@ -252,11 +470,178 @@ $(document).ready(function () {
         $('.user-menu').toggleClass('open');
     });
 
+    // "Mon profil" : tout utilisateur modifie SON PROPRE compte par ce biais, plutôt que
+    // par la page "Gestion des Utilisateurs" (réservée aux administrateurs — voir
+    // applyAdminOnlyUI/loadUtilisateurs). Réutilise le même formulaire/modale que
+    // l'édition admin, avec le champ Rôle masqué pour un non-administrateur : il ne peut
+    // de toute façon pas se l'auto-attribuer (verrouillé côté serveur), autant ne pas
+    // laisser un contrôle qui n'a aucun effet.
+    $('#mon-profil-btn').on('click', function () {
+        $('.user-menu').removeClass('open');
+
+        const userId = localStorage.getItem('user_id');
+        const userRole = localStorage.getItem('user_role');
+
+        $.ajax({
+            url: `../backend/api/utilisateurs.php?action=read&id=${userId}`,
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                const utilisateur = Array.isArray(data) ? data[0] : null;
+                if (!utilisateur) {
+                    alert('Erreur: impossible de récupérer votre profil.');
+                    return;
+                }
+
+                openModal('utilisateurs', 'edit');
+                $('#modal-title').text('Mon profil');
+
+                $('#utilisateur-form').append('<input type="hidden" name="id" value="' + utilisateur.id + '">');
+                $('#nom').val(utilisateur.nom);
+                $('#login').val(utilisateur.login);
+                $('#email').val(utilisateur.email);
+                $('#role').val(utilisateur.role);
+                $('#mot_de_passe').val('');
+
+                if (userRole !== 'Administrateur') {
+                    $('#role-form-group').hide();
+                }
+            },
+            error: function () {
+                alert('Erreur: impossible de récupérer votre profil.');
+            }
+        });
+    });
+
     // Fermer le menu utilisateur en cliquant ailleurs
     $(document).on('click', function(e) {
         if (!$(e.target).closest('.user-menu').length) {
             $('.user-menu').removeClass('open');
         }
+    });
+
+    // --- Écran Paramètres (Administrateur) : notifications email, SMTP, seuils/fréquences ---
+    // Les champs texte/nombre/select sont mappés 1:1 sur leur id = clé de paramètre côté
+    // API, ce qui permet un remplissage/collecte générique (pas de liste à maintenir).
+    const PARAMETRES_CHAMPS_TEXTE = [
+        'seuil_echeance_proche_jours', 'seuil_non_prise_en_charge_jours', 'seuil_tache_dormante_jours',
+        'intervalle_rafraichissement_secondes',
+        'efficacite_fenetre_jours', 'efficacite_seuil_bon', 'efficacite_seuil_moyen',
+        'escalade_email_destinataires', 'frequence_digest_heures', 'frequence_escalade_heures',
+        'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_from_email', 'smtp_from_name'
+    ];
+    const PARAMETRES_CASES_A_COCHER = [
+        'email_notifications_actives', 'email_on_nouvelle_tache_assignee',
+        'email_on_digest_quotidien', 'email_on_escalade'
+    ];
+
+    function loadParametres() {
+        if (localStorage.getItem('user_role') !== 'Administrateur') {
+            $('#parametres-form').hide();
+            $('#parametres-acces-refuse').show();
+            return;
+        }
+        $('#parametres-acces-refuse').hide();
+        $('#parametres-form').show();
+
+        $.ajax({
+            url: '../backend/api/parametres.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                PARAMETRES_CHAMPS_TEXTE.forEach(cle => $('#' + cle).val(data[cle] ?? ''));
+                PARAMETRES_CASES_A_COCHER.forEach(cle => $('#' + cle).prop('checked', data[cle] === '1'));
+
+                $('#smtp_password_hint').text(
+                    data.smtp_password_configure
+                        ? 'Un mot de passe est déjà enregistré ; laissez ce champ vide pour le conserver.'
+                        : 'Aucun mot de passe enregistré pour le moment.'
+                );
+                $('#parametres-save-status').text('');
+                $('#parametres-test-email-resultat').text('');
+            },
+            error: function (xhr) {
+                if (xhr.status === 403) {
+                    $('#parametres-form').hide();
+                    $('#parametres-acces-refuse').show();
+                } else {
+                    console.error('Erreur lors du chargement des paramètres.');
+                }
+            }
+        });
+    }
+
+    $('#parametres-form').on('submit', function (e) {
+        e.preventDefault();
+
+        const donnees = {};
+        PARAMETRES_CHAMPS_TEXTE.forEach(cle => { donnees[cle] = $('#' + cle).val(); });
+        PARAMETRES_CASES_A_COCHER.forEach(cle => { donnees[cle] = $('#' + cle).is(':checked') ? '1' : '0'; });
+        donnees['smtp_password'] = $('#smtp_password').val(); // vide = conservé côté API
+
+        $('#parametres-save-status').text('Enregistrement…');
+
+        $.ajax({
+            url: '../backend/api/parametres.php?action=update',
+            type: 'POST',
+            data: donnees,
+            dataType: 'json',
+            success: function (response) {
+                if (response.success) {
+                    $('#parametres-save-status').text('Enregistré.');
+                    $('#smtp_password').val('');
+                    loadParametres(); // recharge (met à jour l'indication mot de passe, etc.)
+                } else {
+                    $('#parametres-save-status').text('Erreur : ' + (response.error || 'une erreur est survenue.'));
+                }
+            },
+            error: function (xhr) {
+                let message = 'Erreur lors de l\'enregistrement.';
+                try { message = 'Erreur : ' + (JSON.parse(xhr.responseText).error || message); } catch (e) {}
+                $('#parametres-save-status').text(message);
+            }
+        });
+    });
+
+    $('#btn-test-email').on('click', function () {
+        const destinataire = $('#parametres-test-email').val().trim();
+        if (!destinataire) {
+            $('#parametres-test-email-resultat').text('Indiquez une adresse email de test.');
+            return;
+        }
+
+        const $btn = $(this);
+        $btn.prop('disabled', true);
+        $('#parametres-test-email-resultat').text('Envoi en cours…');
+
+        // Teste avec les valeurs actuellement saisies dans le formulaire (pas besoin
+        // d'enregistrer d'abord pour vérifier que la config SMTP fonctionne).
+        const donnees = { destinataire };
+        ['smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_from_email', 'smtp_from_name'].forEach(cle => {
+            donnees[cle] = $('#' + cle).val();
+        });
+        const motDePasseSaisi = $('#smtp_password').val();
+        if (motDePasseSaisi) {
+            donnees['smtp_password'] = motDePasseSaisi;
+        }
+
+        $.ajax({
+            url: '../backend/api/parametres.php?action=test_email',
+            type: 'POST',
+            data: donnees,
+            dataType: 'json',
+            success: function (response) {
+                $('#parametres-test-email-resultat').text(response.success ? '✅ ' + response.message : '❌ ' + response.error);
+            },
+            error: function (xhr) {
+                let message = 'Échec du test.';
+                try { message = JSON.parse(xhr.responseText).error || message; } catch (e) {}
+                $('#parametres-test-email-resultat').text('❌ ' + message);
+            },
+            complete: function () {
+                $btn.prop('disabled', false);
+            }
+        });
     });
 
     // --- Gestion du Menu Latéral (Sidebar) ---
@@ -292,6 +677,15 @@ $(document).ready(function () {
         loadTaches();
         loadServices();
         loadUtilisateurs();
+        if (targetPage === '#dashboard') {
+            // Chaque retour sur le tableau de bord rafraîchit ses chiffres et relance le
+            // résumé/l'alerte d'escalade — pas seulement à la connexion.
+            updateDashboardStats();
+            loadTaskNotifications(true);
+        }
+        if (targetPage === '#parametres') {
+            loadParametres();
+        }
         if (newTitle === 'Gestion du Matériel') {
             updateTotalCount('#materiel-table', '#main-title', newTitle);
         }else if(newTitle === 'Gestion des Tâches') {
@@ -545,12 +939,20 @@ $(document).ready(function () {
     // Fonction pour charger et afficher les utilisateurs depuis l'API
     function loadUtilisateurs() {
         const userRole = localStorage.getItem('user_role');
-        const userId = localStorage.getItem('user_id');
-        let apiUrl = '../backend/api/utilisateurs.php?action=read';
 
+        // La liste des utilisateurs (même filtrée à soi-même) est réservée aux
+        // administrateurs — un utilisateur gère son propre compte via "Mon profil"
+        // (menu utilisateur), pas cette page. Voir aussi la vérification serveur dans
+        // utilisateurs.php?action=read (403 si non-admin sans ?id=).
         if (userRole !== 'Administrateur') {
-            apiUrl += `&id=${userId}`;
+            $('#utilisateurs-contenu').hide();
+            $('#utilisateurs-acces-refuse').show();
+            return;
         }
+        $('#utilisateurs-acces-refuse').hide();
+        $('#utilisateurs-contenu').show();
+
+        const apiUrl = '../backend/api/utilisateurs.php?action=read';
 
         //console.log("URL de l'API des utilisateurs: " + apiUrl);
 
@@ -564,15 +966,25 @@ $(document).ready(function () {
                 tableBody.empty(); // On vide la table avant de la remplir
 
                 if (data.length === 0) {
-                    tableBody.append('<tr><td colspan="4" style="text-align:center;">Aucun utilisateur trouvé.</td></tr>');
+                    tableBody.append('<tr><td colspan="6" style="text-align:center;">Aucun utilisateur trouvé.</td></tr>');
                 } else {
                     $.each(data, function (index, item) {
-                        //console.log("User data from server: " + item);  
+                        //console.log("User data from server: " + item);
+                        // efficacite_pct n'est présent que pour un admin (voir utilisateurs.php) :
+                        // absent pour un technicien consultant sa propre fiche — affiche '-'.
+                        let effBadge = '<span class="no-data-inline">–</span>';
+                        if (item.efficacite_pct !== undefined && item.efficacite_pct !== null) {
+                            const statusClass = item.efficacite_zone === 'bon' ? 'status-success'
+                                : item.efficacite_zone === 'moyen' ? 'status-warning' : 'status-danger';
+                            effBadge = `<span class="status-badge ${statusClass}">${item.efficacite_pct}%</span>`;
+                        }
                         const row = `
                             <tr>
                                 <td>${item.nom}</td>
                                 <td>${item.login}</td>
+                                <td>${item.email || '-'}</td>
                                 <td>${item.role}</td>
+                                <td>${effBadge}</td>
                                 <td class="actions">
                                     <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
                                     <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
@@ -586,9 +998,23 @@ $(document).ready(function () {
             },
             error: function (xhr, status, error) {
                 console.error("Erreur lors du chargement des utilisateurs:", error);
-                $('#utilisateurs-table tbody').html('<tr><td colspan="4" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
+                $('#utilisateurs-table tbody').html('<tr><td colspan="6" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
             }
         });
+    }
+
+    // Formate l'ancienneté d'une tâche ("aujourd'hui", "il y a 3 j", "il y a 2 mois"...)
+    // pour rendre visibles, en un coup d'œil, les tâches anciennes qu'on oublie de traiter.
+    function formatAge(dateStr) {
+        if (!dateStr) return '';
+        const diffJours = Math.floor((new Date() - new Date(dateStr)) / 86400000);
+        if (diffJours <= 0) return "aujourd'hui";
+        if (diffJours === 1) return 'hier';
+        if (diffJours < 30) return `il y a ${diffJours} j`;
+        const diffMois = Math.floor(diffJours / 30);
+        if (diffMois < 12) return `il y a ${diffMois} mois`;
+        const diffAns = Math.floor(diffMois / 12);
+        return `il y a ${diffAns} an${diffAns > 1 ? 's' : ''}`;
     }
 
     // Fonction pour charger et afficher les tâches depuis l'API
@@ -629,12 +1055,20 @@ $(document).ready(function () {
                         taches = taches.filter(t => t.date_limite && t.date_limite.slice(0, 10) < today
                             && t.statut !== 'Terminé' && t.statut !== 'Annulé');
                     } else if (filterDate === 'echeance_proche') {
-                        const dans3jours = new Date();
-                        dans3jours.setDate(dans3jours.getDate() + 3);
-                        const dans3joursStr = dans3jours.toISOString().slice(0, 10);
+                        const dansNJours = new Date();
+                        dansNJours.setDate(dansNJours.getDate() + appParams.seuil_echeance_proche_jours);
+                        const dansNJoursStr = dansNJours.toISOString().slice(0, 10);
                         taches = taches.filter(t => t.date_limite && t.date_limite.slice(0, 10) >= today
-                            && t.date_limite.slice(0, 10) <= dans3joursStr
+                            && t.date_limite.slice(0, 10) <= dansNJoursStr
                             && t.statut !== 'Terminé' && t.statut !== 'Annulé');
+                    } else if (filterDate === 'non_prises_en_charge') {
+                        // Tâches "À faire" jamais prises en charge depuis le seuil configuré
+                        // (Paramètres > Seuils métier ; même seuil que l'action backend 'escalations').
+                        taches = taches.filter(t => {
+                            if (t.statut !== 'À faire' || !t.date_creation) return false;
+                            const joursAttente = Math.floor((new Date() - new Date(t.date_creation)) / 86400000);
+                            return joursAttente >= appParams.seuil_non_prise_en_charge_jours;
+                        });
                     }
                 }
 
@@ -696,26 +1130,48 @@ $(document).ready(function () {
                     let echeanceBadge = '';
                     if (item.date_limite && item.statut !== 'Terminé' && item.statut !== 'Annulé') {
                         const todayStr = new Date().toISOString().slice(0, 10);
-                        const dans3jours = new Date();
-                        dans3jours.setDate(dans3jours.getDate() + 3);
-                        const dans3joursStr = dans3jours.toISOString().slice(0, 10);
+                        const dansNJours = new Date();
+                        dansNJours.setDate(dansNJours.getDate() + appParams.seuil_echeance_proche_jours);
+                        const dansNJoursStr = dansNJours.toISOString().slice(0, 10);
                         const dateLimiteStr = item.date_limite.slice(0, 10);
 
                         if (dateLimiteStr < todayStr) {
                             echeanceBadge = ' <span class="status-badge status-danger" title="Date limite dépassée">En retard</span>';
-                        } else if (dateLimiteStr <= dans3joursStr) {
-                            echeanceBadge = ' <span class="status-badge status-warning" title="Échéance dans moins de 3 jours">Bientôt</span>';
+                        } else if (dateLimiteStr <= dansNJoursStr) {
+                            echeanceBadge = ` <span class="status-badge status-warning" title="Échéance dans moins de ${appParams.seuil_echeance_proche_jours} jours">Bientôt</span>`;
+                        }
+                    }
+
+                    // Badge "tâche dormante" : À faire/En cours sans mise à jour depuis le seuil
+                    // configuré (Paramètres > Seuils métier), pour rendre visibles les tâches
+                    // qui traînent même sans date limite.
+                    let dormantBadge = '';
+                    let joursInactivite = 0;
+                    const estActive = (item.statut === 'À faire' || item.statut === 'En cours');
+                    if (estActive && item.date_modification) {
+                        joursInactivite = Math.floor((new Date() - new Date(item.date_modification)) / 86400000);
+                        if (joursInactivite >= appParams.seuil_tache_dormante_jours) {
+                            dormantBadge = ` <span class="status-badge status-warning" title="Aucune mise à jour depuis ${joursInactivite} jours">Inactive ${joursInactivite}j</span>`;
                         }
                     }
 
                     // Dates brutes (YYYY-MM-DD) stockées en attributs data-* pour un filtrage fiable
                     const dateAjoutRaw = item.date_creation ? item.date_creation.slice(0, 10) : '';
                     const dateLimiteRaw = item.date_limite ? item.date_limite.slice(0, 10) : '';
+                    const dateModifRaw = item.date_modification ? item.date_modification.slice(0, 10) : '';
+
+                    // Bouton "Prendre en charge" : visible sur les tâches encore "À faire".
+                    const peutPrendreEnCharge = item.statut === 'À faire';
+                    // Bouton "Terminer" : visible pour l'admin ou l'utilisateur assigné, tant que
+                    // la tâche n'est pas déjà terminée/annulée — évite de rouvrir le formulaire
+                    // complet juste pour clore une tâche.
+                    const peutTerminer = item.statut !== 'Terminé' && item.statut !== 'Annulé'
+                        && (userRole === 'Administrateur' || (item.assigne_a && item.assigne_a === userName));
 
                     const row = `
-                        <tr data-date-ajout="${dateAjoutRaw}" data-date-limite="${dateLimiteRaw}">
-                            <td>${statusBadge}</td>
-                            <td>${item.titre}</td>
+                        <tr data-date-ajout="${dateAjoutRaw}" data-date-limite="${dateLimiteRaw}" data-date-modification="${dateModifRaw}" data-statut-raw="${item.statut}">
+                            <td>${statusBadge}${dormantBadge}</td>
+                            <td>${item.titre}<small class="tache-age" title="Créée le ${item.date_creation ? new Date(item.date_creation).toLocaleDateString('fr-FR') : '?'}">${formatAge(item.date_creation)}</small></td>
                             <td>${item.motif_cause || '-'}</td>
                             <td>${item.service_concerne || '-'}</td>
                             <td>${item.materiel_concerne || '-'}</td>
@@ -723,12 +1179,17 @@ $(document).ready(function () {
                             <td>${dateLimite}${echeanceBadge}</td>
                             <td>${priorityBadge}</td>
                             <td class="actions">
+                                <button class="btn-action btn-quick-take" data-id="${item.id}" title="Prendre en charge" style="display: ${peutPrendreEnCharge ? '' : 'none'};"><i class="fas fa-hand-paper"></i></button>
+                                <button class="btn-action btn-quick-done" data-id="${item.id}" title="Marquer comme terminée" style="display: ${peutTerminer ? '' : 'none'};"><i class="fas fa-check"></i></button>
                                 <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
                                 <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
                             </td>
                         </tr>
                     `;
-                    tableBody.append(row);
+                    // .data('tache', item) plutôt qu'un attribut HTML : évite tout souci
+                    // d'échappement et permet aux actions rapides de réutiliser l'objet complet
+                    // sans le rappeler depuis l'API.
+                    tableBody.append($(row).data('tache', item));
                 });
 
                 // Alimente les filtres "Assigné à", "Matériel concerné" et "Service" avec
@@ -768,7 +1229,7 @@ $(document).ready(function () {
     // Fonction pour mettre à jour les statistiques du tableau de bord
     function updateDashboardStats() {
         $.ajax({
-            url: '../backend/api/dashboard.php?action=stats',
+            url: '../backend/api/dashboard.php?action=stats' + periodeQueryString(),
             type: 'GET',
             dataType: 'json',
             success: function(data) {
@@ -781,6 +1242,7 @@ $(document).ready(function () {
                 $('#taches-total').text(data.taches.total);
                 $('#taches-en-retard').text(data.taches.en_retard);
                 $('#taches-echeance-proche').text(data.taches.echeance_proche);
+                $('#taches-non-prises-en-charge').text(data.taches.non_prises_en_charge);
                 $('#materiel-pannes-sans-tache').text(data.materiel.pannes_sans_tache);
 
                // $('.card-value').eq(5).text(data.services.total); // Ajustez l'index si nécessaire
@@ -818,28 +1280,31 @@ $(document).ready(function () {
         });
     }
 
-    // Fonction pour charger les types de matériel dans le select du formulaire Matériel
-    // (table t_type_materiel, jusqu'ici créée mais jamais utilisée par le frontend)
+    // Fonction pour charger les types de matériel dans les selects concernés (table
+    // t_type_materiel) : celui du formulaire Matériel (#type) et celui du mini-formulaire
+    // "Ajouter un matériel" intégré à la fiche Tâche (#nm-type).
     function loadTypeMaterielInSelects() {
         $.ajax({
             url: '../backend/api/type_materiel.php?action=read',
             type: 'GET',
             dataType: 'json',
             success: function(types) {
-                const typeSelect = $('#type');
-                if (typeSelect.length === 0) return;
+                ['#type', '#nm-type'].forEach(function(selector) {
+                    const typeSelect = $(selector);
+                    if (typeSelect.length === 0) return;
 
-                const currentValue = typeSelect.val();
-                // On garde le placeholder et l'option "+ Ajouter un type", on remplace le reste
-                typeSelect.find('option').not('[value=""]').not('[value="__new__"]').remove();
-                const newOption = typeSelect.find('option[value="__new__"]');
-                types.forEach(function(t) {
-                    $(`<option value="${t.type}">${t.type}</option>`).insertBefore(newOption);
+                    const currentValue = typeSelect.val();
+                    // On garde le placeholder et l'option "+ Ajouter un type", on remplace le reste
+                    typeSelect.find('option').not('[value=""]').not('[value="__new__"]').remove();
+                    const newOption = typeSelect.find('option[value="__new__"]');
+                    types.forEach(function(t) {
+                        $(`<option value="${t.type}">${t.type}</option>`).insertBefore(newOption);
+                    });
+
+                    if (currentValue && currentValue !== '__new__') {
+                        typeSelect.val(currentValue);
+                    }
                 });
-
-                if (currentValue && currentValue !== '__new__') {
-                    typeSelect.val(currentValue);
-                }
             },
             error: function() {
                 console.error('Erreur lors du chargement des types de matériel');
@@ -890,6 +1355,20 @@ $(document).ready(function () {
                         materielServiceSelect.append(`<option value="${service.nom}">${service.nom}</option>`);
                     });
                 }
+
+                // Filtre par service du sélecteur de matériel (fiche Tâche) et service affecté
+                // du mini-formulaire "Ajouter un matériel" intégré à cette même fiche.
+                [$('#tache-materiel-filtre-service'), $('#nm-service')].forEach(function($sel) {
+                    if ($sel.length === 0) return;
+                    const currentValue = $sel.val();
+                    $sel.find('option:not(:first)').remove();
+                    services.forEach(function(service) {
+                        $sel.append(`<option value="${service.nom}">${service.nom}</option>`);
+                    });
+                    if (currentValue) {
+                        $sel.val(currentValue);
+                    }
+                });
             },
             error: function() {
                 console.error('Erreur lors du chargement des services pour les selects');
@@ -897,24 +1376,19 @@ $(document).ready(function () {
         });
     }
 
-    // Fonction pour charger le matériel dans les selects
-    function loadMaterielInSelects(serviceFilter = '') {
+    // Cache du matériel chargé pour le sélecteur de la fiche Tâche : évite un aller-retour
+    // réseau à chaque changement de filtre/recherche (voir renderTacheMaterielOptions).
+    let materielCache = [];
+
+    // Fonction pour charger le matériel dans le select de la fiche Tâche
+    function loadMaterielInSelects() {
         $.ajax({
             url: '../backend/api/materiel.php?action=read',
             type: 'GET',
             dataType: 'json',
             success: function(materiel) {
-                // Mettre à jour le select des tâches
-                const materielSelect = $('#tache-materiel');
-                materielSelect.find('option:not(:first)').remove();
-                
-                materiel.forEach(function(item) {
-                    // Filtrer par service si spécifié
-                    if (!serviceFilter || item.service_affecte === serviceFilter) {
-                        const displayText = `${item.type} ${item.marque} ${item.modele} (${item.num_serie})`;
-                        materielSelect.append(`<option value="${displayText}">${displayText}</option>`);
-                    }
-                });
+                materielCache = materiel;
+                renderTacheMaterielOptions();
             },
             error: function() {
                 console.error('Erreur lors du chargement du matériel pour les selects');
@@ -922,10 +1396,48 @@ $(document).ready(function () {
         });
     }
 
+    // Reconstruit les <option> de #tache-materiel à partir du cache, filtrées par le
+    // service sélectionné (#tache-materiel-filtre-service) et le texte de recherche
+    // (#tache-materiel-recherche, sur le nom affiché ET le numéro de série).
+    function renderTacheMaterielOptions() {
+        const $select = $('#tache-materiel');
+        if ($select.length === 0) return;
+
+        const currentValue = $select.val();
+        const serviceFilter = $('#tache-materiel-filtre-service').val();
+        const recherche = ($('#tache-materiel-recherche').val() || '').trim().toLowerCase();
+
+        $select.empty();
+        $select.append('<option value="">Aucun matériel spécifique</option>');
+
+        materielCache.forEach(function(item) {
+            if (serviceFilter && item.service_affecte !== serviceFilter) return;
+
+            const displayText = `${item.type} ${item.marque} ${item.modele} (${item.num_serie})`;
+            if (recherche) {
+                const matchNom = displayText.toLowerCase().includes(recherche);
+                const matchSerie = (item.num_serie || '').toLowerCase().includes(recherche);
+                if (!matchNom && !matchSerie) return;
+            }
+
+            $select.append(`<option value="${displayText}">${displayText}</option>`);
+        });
+
+        $select.append('<option value="__new__">+ Ajouter un nouveau matériel...</option>');
+
+        // Restaure la sélection précédente si elle existe toujours dans la liste filtrée
+        const existeEncore = $select.find('option').filter(function() {
+            return $(this).val() === currentValue;
+        }).length > 0;
+        if (currentValue && currentValue !== '__new__' && existeEncore) {
+            $select.val(currentValue);
+        }
+    }
+
     // Fonction pour charger les tâches récentes
     function loadRecentActivities() {
         $.ajax({
-            url: '../backend/api/dashboard.php?action=activites',
+            url: '../backend/api/dashboard.php?action=activites' + periodeQueryString(),
             type: 'GET',
             dataType: 'json',
             success: function(activites) {
@@ -969,7 +1481,7 @@ $(document).ready(function () {
     // Fonction pour charger les pannes récurrentes
     function loadPannesRecurrentes() {
         $.ajax({
-            url: '../backend/api/dashboard.php?action=pannes_recurrentes',
+            url: '../backend/api/dashboard.php?action=pannes_recurrentes' + periodeQueryString(),
             type: 'GET',
             dataType: 'json',
             success: function(pannes) {
@@ -1066,7 +1578,7 @@ $(document).ready(function () {
     // Fonction pour charger les services demandeurs
     function loadServicesDemandeurs() {
         $.ajax({
-            url: '../backend/api/dashboard.php?action=services_demandeurs',
+            url: '../backend/api/dashboard.php?action=services_demandeurs' + periodeQueryString(),
             type: 'GET',
             dataType: 'json',
             success: function(services) {
@@ -1099,13 +1611,51 @@ $(document).ready(function () {
         });
     }
 
+    // Fonction pour charger le classement des agents ayant terminé le plus de tâches
+    // (reconnaissance positive, plutôt qu'un classement des retards)
+    function loadTopResolveurs() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=top_resolveurs' + periodeQueryString(),
+            type: 'GET',
+            dataType: 'json',
+            success: function(resolveurs) {
+                const container = $('#top-resolveurs-list');
+                container.empty();
+
+                if (resolveurs.length === 0) {
+                    container.html('<div class="no-data">Aucune tâche terminée sur la période sélectionnée</div>');
+                    return;
+                }
+
+                const medailles = ['🥇', '🥈', '🥉'];
+                resolveurs.forEach(function(r, index) {
+                    const medaille = medailles[index] || `${index + 1}.`;
+                    const item = `
+                        <div class="service-item">
+                            <div class="service-info">
+                                <div class="service-name">${medaille} ${r.assigne_a}</div>
+                                <div class="service-stats">Tâches terminées sur la période sélectionnée</div>
+                            </div>
+                            <div class="service-count">${r.nb_terminees}</div>
+                        </div>
+                    `;
+                    container.append(item);
+                });
+            },
+            error: function() {
+                console.error('Erreur lors du chargement du top résolveurs');
+                $('#top-resolveurs-list').html('<div class="no-data">Erreur de chargement</div>');
+            }
+        });
+    }
+
     // Variable globale pour le graphique
     let pannesChart = null;
 
     // Fonction pour charger et afficher le graphique des pannes par mois
     function loadPannesParMois() {
         $.ajax({
-            url: '../backend/api/dashboard.php?action=pannes_par_mois',
+            url: '../backend/api/dashboard.php?action=pannes_par_mois' + periodeQueryString(),
             type: 'GET',
             dataType: 'json',
             success: function(data) {
@@ -1117,7 +1667,7 @@ $(document).ready(function () {
                 }
 
                 if (data.length === 0) {
-                    $('#pannes-chart-container').html('<div class="no-data">Aucune tâche déclarée sur les 12 derniers mois</div>');
+                    $('#pannes-chart-container').html('<div class="no-data">Aucune tâche déclarée sur la période sélectionnée</div>');
                     return;
                 }
 
@@ -1166,6 +1716,45 @@ $(document).ready(function () {
         });
     }
 
+    // --- Filtre période du tableau de bord ---
+    // Recharge tout ce qui dépend de la période sélectionnée (voir la liste des fonctions
+    // dans le commentaire au-dessus de `dashboardPeriode`) — pas l'état du parc matériel
+    // (loadParcLifecycle) ni "Mes tâches du jour" (loadTaskNotifications), volontairement
+    // non bornés par période.
+    function refreshDashboardPeriode() {
+        updateDashboardStats();
+        loadRecentActivities();
+        loadPannesRecurrentes();
+        loadServicesDemandeurs();
+        loadPannesParMois();
+        loadTopResolveurs();
+    }
+
+    $('#dashboard-periode-debut').val(dashboardPeriode.debut);
+    $('#dashboard-periode-fin').val(dashboardPeriode.fin);
+
+    $('#btn-dashboard-periode-appliquer').on('click', function () {
+        const debut = $('#dashboard-periode-debut').val();
+        const fin = $('#dashboard-periode-fin').val();
+        if (!debut || !fin) {
+            alert('Indiquez une date de début et une date de fin.');
+            return;
+        }
+        if (debut > fin) {
+            alert('La date de début doit précéder la date de fin.');
+            return;
+        }
+        dashboardPeriode = { debut: debut, fin: fin };
+        refreshDashboardPeriode();
+    });
+
+    $('#btn-dashboard-periode-annee').on('click', function () {
+        dashboardPeriode = { debut: premierJourAnnee(), fin: dernierJourAnnee() };
+        $('#dashboard-periode-debut').val(dashboardPeriode.debut);
+        $('#dashboard-periode-fin').val(dashboardPeriode.fin);
+        refreshDashboardPeriode();
+    });
+
     // --- Gestion des clics sur les cartes du tableau de bord ---
     $('.dashboard-cards').on('click', '.card', function() {
         const page = $(this).data('page');
@@ -1178,12 +1767,16 @@ $(document).ready(function () {
             // Appliquer le filtre après un court délai pour laisser le temps à la page de se charger
             setTimeout(() => {
                 if (page === 'taches') {
+                    // Les filtres appliqués ci-dessous ne concernent que la vue liste :
+                    // on y revient systématiquement (le Kanban n'a pas de notion de filtre).
+                    $('#btn-vue-liste').trigger('click');
+
                     // Les filtres "date" (crees_aujourdhui, terminees_aujourdhui, en_retard,
                     // echeance_proche) ne correspondent à aucun select visible : on les
                     // applique directement. Les autres (ex: "En cours") sont des valeurs de
                     // statut : on passe par le select #filter-statut existant pour que l'UI
                     // de filtre reste synchronisée avec ce qui est affiché.
-                    const filtresDate = ['crees_aujourdhui', 'terminees_aujourdhui', 'en_retard', 'echeance_proche'];
+                    const filtresDate = ['crees_aujourdhui', 'terminees_aujourdhui', 'en_retard', 'echeance_proche', 'non_prises_en_charge'];
                     $('#filter-priorite').val('');
                     if (filter && filtresDate.includes(filter)) {
                         $('#filter-statut').val('');
@@ -1334,20 +1927,76 @@ $(document).ready(function () {
                     <input type="date" id="tache-date-limite" name="tache-date-limite">
                 </div>
             </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="tache-service">Service concerné</label>
-                    <select id="tache-service" name="tache-service">
-                        <option value="">Sélectionner un service</option>
+            <div class="form-group">
+                <label for="tache-service">Service concerné</label>
+                <select id="tache-service" name="tache-service">
+                    <option value="">Sélectionner un service</option>
+                    <!-- Les services seront chargés dynamiquement -->
+                </select>
+            </div>
+            <div class="form-group" id="tache-materiel-groupe">
+                <label for="tache-materiel">Matériel/Application concerné</label>
+                <div class="materiel-picker-filters">
+                    <select id="tache-materiel-filtre-service" title="Filtrer la liste par service">
+                        <option value="">Tous les services</option>
                         <!-- Les services seront chargés dynamiquement -->
                     </select>
+                    <input type="text" id="tache-materiel-recherche" placeholder="Rechercher par nom ou n° de série...">
                 </div>
-                <div class="form-group">
-                    <label for="tache-materiel">Matériel/Application concerné</label>
-                    <select id="tache-materiel" name="tache-materiel">
-                        <option value="">Sélectionner un matériel</option>
-                        <!-- Le matériel sera chargé dynamiquement -->
-                    </select>
+                <select id="tache-materiel" name="tache-materiel">
+                    <option value="">Aucun matériel spécifique</option>
+                    <option value="__new__">+ Ajouter un nouveau matériel...</option>
+                    <!-- Le matériel sera chargé dynamiquement -->
+                </select>
+                <div class="inline-subform" id="tache-materiel-nouveau" style="display:none;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="nm-type">Type</label>
+                            <select id="nm-type">
+                                <option value="">Sélectionner un type</option>
+                                <option value="__new__">+ Ajouter un nouveau type...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="nm-statut">Statut</label>
+                            <select id="nm-statut">
+                                <option value="En service">En service</option>
+                                <option value="En panne">En panne</option>
+                                <option value="En attente">En attente</option>
+                                <option value="Retiré">Retiré</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="nm-marque">Marque</label>
+                            <input type="text" id="nm-marque" placeholder="Ex: Dell">
+                        </div>
+                        <div class="form-group">
+                            <label for="nm-modele">Modèle</label>
+                            <input type="text" id="nm-modele" placeholder="Ex: Latitude 7420">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="nm-num-serie">Numéro de série</label>
+                            <input type="text" id="nm-num-serie" placeholder="Code unique de l'équipement">
+                        </div>
+                        <div class="form-group">
+                            <label for="nm-service">Service affecté</label>
+                            <select id="nm-service">
+                                <option value="">Sélectionner un service</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group" id="nm-date-affect-group" style="display:none;">
+                        <label for="nm-date-affect">Date de dernière affectation</label>
+                        <input type="date" id="nm-date-affect">
+                    </div>
+                    <div class="inline-subform-actions">
+                        <button type="button" id="btn-nm-annuler" class="btn btn-secondary">Annuler</button>
+                        <button type="button" id="btn-nm-creer" class="btn btn-primary">Créer et sélectionner</button>
+                    </div>
                 </div>
             </div>
             <div class="form-group">
@@ -1367,13 +2016,18 @@ $(document).ready(function () {
             </div>
             <div class="form-group">
                 <label for="login">Login</label>
-                <input type="text" id="login" name="login" placeholder="Ex: jean.dupont@parcinfo.local">
+                <input type="text" id="login" name="login" placeholder="Ex: jean.dupont">
+            </div>
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" placeholder="Ex: jean.dupont@parcinfo.local">
+                <div class="field-hint">Utilisée pour les notifications par email (nouvelle tâche, résumé, escalade).</div>
             </div>
             <div class="form-group">
                 <label for="mot_de_passe">Mot de passe</label>
                 <input type="password" id="mot_de_passe" name="mot_de_passe" placeholder="Entrez votre mot de passe">
             </div>
-            <div class="form-group">
+            <div class="form-group" id="role-form-group">
                 <label for="role">Rôle</label>
                 <select id="role" name="role">
                     <option>Technicien</option>
@@ -1485,12 +2139,154 @@ $(document).ready(function () {
             } else if (context === 'taches') {
                 loadUsersInSelects();
                 loadServicesInSelects();
+                loadTypeMaterielInSelects();
                 loadMaterielInSelects();
-                
-                // Ajouter l'événement pour filtrer le matériel par service
+
+                // "Service concerné" pré-remplit le filtre du sélecteur de matériel, par
+                // commodité — l'utilisateur peut ensuite changer ce filtre indépendamment
+                // (le matériel d'un service donné n'est pas forcément celui de la tâche).
                 $('#tache-service').off('change').on('change', function() {
-                    const selectedService = $(this).val();
-                    loadMaterielInSelects(selectedService);
+                    $('#tache-materiel-filtre-service').val($(this).val());
+                    renderTacheMaterielOptions();
+                });
+
+                // Filtre par service et recherche par nom/n° de série du sélecteur de matériel
+                $('#tache-materiel-filtre-service').off('change').on('change', renderTacheMaterielOptions);
+                $('#tache-materiel-recherche').off('keyup').on('keyup', renderTacheMaterielOptions);
+
+                // "+ Ajouter un nouveau matériel..." : révèle un mini-formulaire intégré à la
+                // fiche (inspiré du select "type" du formulaire Matériel), pour ne pas avoir à
+                // quitter la création/édition de la tâche en cours.
+                $('#tache-materiel').off('change').on('change', function() {
+                    if ($(this).val() === '__new__') {
+                        $('#tache-materiel-nouveau').show();
+                    } else {
+                        $('#tache-materiel-nouveau').hide();
+                    }
+                });
+
+                // Même mécanisme de création à la volée que #type sur le formulaire Matériel
+                $('#nm-type').off('change').on('change', function() {
+                    if ($(this).val() === '__new__') {
+                        const nouveauType = prompt('Nom du nouveau type de matériel :');
+                        if (nouveauType && nouveauType.trim()) {
+                            const valeur = nouveauType.trim();
+                            $.ajax({
+                                url: '../backend/api/type_materiel.php?action=create',
+                                type: 'POST',
+                                data: { type: valeur },
+                                dataType: 'json',
+                                success: function(response) {
+                                    if (response.success) {
+                                        loadTypeMaterielInSelects();
+                                        setTimeout(function() { $('#nm-type').val(valeur); }, 150);
+                                    } else {
+                                        alert('Erreur: ' + (response.error || 'Impossible de créer ce type.'));
+                                        $('#nm-type').val('');
+                                    }
+                                },
+                                error: function() {
+                                    alert('Erreur de communication avec le serveur.');
+                                    $('#nm-type').val('');
+                                }
+                            });
+                        } else {
+                            $('#nm-type').val('');
+                        }
+                    }
+                });
+
+                // Un service affecté impose une date d'affectation (même règle que le
+                // formulaire Matériel complet, appliquée ici côté client + revalidée serveur).
+                $('#nm-service').off('change').on('change', function() {
+                    $('#nm-date-affect-group').toggle(!!$(this).val());
+                });
+
+                // Empêche la touche Entrée (recherche matériel ou mini-formulaire) de
+                // soumettre par erreur toute la fiche Tâche en cours d'édition.
+                $('#tache-materiel-groupe').off('keydown').on('keydown', 'input', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                    }
+                });
+
+                $('#btn-nm-annuler').off('click').on('click', function() {
+                    $('#tache-materiel-nouveau').hide();
+                    $('#tache-materiel-nouveau input, #tache-materiel-nouveau select').val('');
+                    $('#nm-statut').val('En service');
+                    $('#nm-date-affect-group').hide();
+                    $('#tache-materiel').val('');
+                });
+
+                $('#btn-nm-creer').off('click').on('click', function() {
+                    const type = $('#nm-type').val();
+                    const marque = $('#nm-marque').val().trim();
+                    const modele = $('#nm-modele').val().trim();
+                    const numSerie = $('#nm-num-serie').val().trim();
+                    const statut = $('#nm-statut').val();
+                    const service = $('#nm-service').val();
+                    const dateAffect = $('#nm-date-affect').val();
+
+                    if (!type || !marque || !statut) {
+                        alert('Le type, la marque et le statut sont requis pour créer un matériel.');
+                        return;
+                    }
+                    if (service && !dateAffect) {
+                        alert('La date d\'affectation est requise lorsqu\'un service affecté est sélectionné.');
+                        return;
+                    }
+
+                    const $btn = $(this);
+                    $btn.prop('disabled', true);
+
+                    $.ajax({
+                        url: '../backend/api/materiel.php?action=create',
+                        type: 'POST',
+                        data: {
+                            type: type,
+                            marque: marque,
+                            modele: modele,
+                            num_serie: numSerie,
+                            statut: statut,
+                            service: service,
+                            date_derniere_affect: dateAffect,
+                            created_by_login: localStorage.getItem('user_login') || ''
+                        },
+                        dataType: 'json',
+                        success: function(response) {
+                            if (response.success) {
+                                const displayText = `${type} ${marque} ${modele} (${numSerie})`;
+                                $('#tache-materiel-nouveau').hide();
+                                $('#tache-materiel-nouveau input, #tache-materiel-nouveau select').val('');
+                                $('#nm-statut').val('En service');
+                                $('#nm-date-affect-group').hide();
+                                // Recharge le cache matériel puis sélectionne le nouvel élément ;
+                                // le filtre service est levé pour garantir sa visibilité immédiate.
+                                $('#tache-materiel-filtre-service').val('');
+                                $('#tache-materiel-recherche').val('');
+                                $.ajax({
+                                    url: '../backend/api/materiel.php?action=read',
+                                    type: 'GET',
+                                    dataType: 'json',
+                                    success: function(materiel) {
+                                        materielCache = materiel;
+                                        renderTacheMaterielOptions();
+                                        $('#tache-materiel').val(displayText);
+                                    }
+                                });
+                            } else {
+                                alert('Erreur: ' + (response.error || 'Impossible de créer ce matériel.'));
+                            }
+                        },
+                        error: function(xhr) {
+                            let message = 'Erreur de communication avec le serveur.';
+                            try { message = JSON.parse(xhr.responseText).error || message; } catch (e) {}
+                            alert('Erreur: ' + message);
+                        },
+                        complete: function() {
+                            $btn.prop('disabled', false);
+                        }
+                    });
                 });
             }
         }, 100);
@@ -1702,6 +2498,15 @@ $(document).ready(function () {
             });
         }
     });
+    // Cliquer n'importe où sur une ligne de la liste des tâches ouvre directement sa
+    // modification — évite de devoir viser le petit crayon, surtout au doigt sur mobile.
+    // Les clics sur les boutons d'action (crayon inclus) sont ignorés ici : ils ont déjà
+    // leur propre gestionnaire, plus bas, pas besoin de le déclencher deux fois.
+    $('#taches-table tbody').on('click', 'tr', function (e) {
+        if ($(e.target).closest('.btn-action').length) return;
+        $(this).find('.btn-edit').trigger('click');
+    });
+
     // Gestionnaire de clics "Modifier" pour les tâches
     $('#taches-page').on('click', '.btn-edit', function () {
 
@@ -1733,18 +2538,16 @@ $(document).ready(function () {
                         $('#tache-statut').val(tache.statut);
                         $('#tache-assigne').val(tache.assigne_a);
                         $('#tache-service').val(tache.service_concerne);
-                        $('#tache-materiel').val(tache.materiel_concerne);
                         $('#tache-date-limite').val(tache.date_limite);
                         $('#tache-actions').val(tache.actions);
-                        
-                        // Si un service est sélectionné, filtrer le matériel
-                        if (tache.service_concerne) {
-                            loadMaterielInSelects(tache.service_concerne);
-                            // Attendre un peu plus pour que le matériel soit filtré
-                            setTimeout(function() {
-                                $('#tache-materiel').val(tache.materiel_concerne);
-                            }, 100);
-                        }
+
+                        // Filtre du sélecteur de matériel levé ("Tous les services") pour
+                        // garantir que le matériel déjà associé à la tâche reste visible même
+                        // s'il appartient à un autre service que "Service concerné".
+                        $('#tache-materiel-filtre-service').val('');
+                        $('#tache-materiel-recherche').val('');
+                        renderTacheMaterielOptions();
+                        $('#tache-materiel').val(tache.materiel_concerne);
 
                         // Cacher/désactiver le bouton enregistrer si le user n'est pas admin et la tâche ne lui est pas assignée
                         if (userRole !== 'Administrateur' && userName !== tache.assigne_a) {
@@ -1809,6 +2612,189 @@ $(document).ready(function () {
         }
     });
     
+    // Vue active de la page Tâches : 'liste' (tableau filtrable) ou 'kanban'
+    // (glisser-déposer). Détermine quelle vue rafraîchir après une mise à jour.
+    let tachesViewMode = 'liste';
+
+    function refreshTachesData() {
+        if (tachesViewMode === 'kanban') {
+            loadTachesKanban();
+        } else {
+            loadTaches();
+        }
+    }
+
+    // Envoie une tâche mise à jour (objet complet + champs modifiés) à l'API, sans
+    // passer par le formulaire modal — utilisé par les actions rapides "Prendre en
+    // charge" / "Terminer" et le glisser-déposer Kanban pour réduire la friction du
+    // traitement d'une tâche.
+    function quickUpdateTache(tache, changes) {
+        const updated = Object.assign({}, tache, changes);
+        const updatedByLogin = localStorage.getItem('user_login') || '';
+
+        $.ajax({
+            url: '../backend/api/taches.php?action=update',
+            type: 'POST',
+            data: {
+                id: updated.id,
+                titre: updated.titre,
+                motif_cause: updated.motif_cause,
+                description: updated.description,
+                priorite: updated.priorite,
+                statut: updated.statut,
+                assigne_a: updated.assigne_a,
+                materiel_concerne: updated.materiel_concerne,
+                service_concerne: updated.service_concerne,
+                date_limite: updated.date_limite ? updated.date_limite.slice(0, 10) : '',
+                actions: updated.actions,
+                updated_by_login: updatedByLogin
+            },
+            dataType: 'json',
+            success: function (response) {
+                if (response.success) {
+                    refreshTachesData();
+                    updateDashboardStats();
+                    loadRecentActivities();
+                    loadTaskNotifications();
+                } else {
+                    alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                alert('Erreur: Une erreur est survenue lors de la mise à jour rapide de la tâche.');
+            }
+        });
+    }
+
+    // Gestionnaire de clics "Prendre en charge" pour les tâches (action rapide, sans formulaire)
+    $('#taches-page').on('click', '.btn-quick-take', function (e) {
+        e.stopPropagation();
+        const tache = $(this).closest('tr').data('tache');
+        if (!tache) return;
+        const userName = localStorage.getItem('user_name');
+        quickUpdateTache(tache, { statut: 'En cours', assigne_a: tache.assigne_a || userName });
+    });
+
+    // Gestionnaire de clics "Terminer" pour les tâches (action rapide, sans formulaire)
+    $('#taches-page').on('click', '.btn-quick-done', function (e) {
+        e.stopPropagation();
+        const tache = $(this).closest('tr').data('tache');
+        if (!tache) return;
+        quickUpdateTache(tache, { statut: 'Terminé' });
+    });
+
+    // --- Vue Kanban des tâches (glisser-déposer entre colonnes de statut) ---
+    function loadTachesKanban() {
+        $.ajax({
+            url: '../backend/api/taches.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                renderKanban(data);
+            },
+            error: function (xhr, status, error) {
+                console.error('Erreur lors du chargement du Kanban des tâches:', error);
+            }
+        });
+    }
+
+    function renderKanban(taches) {
+        const colonnes = {
+            'À faire': $('#kanban-col-a-faire'),
+            'En cours': $('#kanban-col-en-cours'),
+            'Terminé': $('#kanban-col-termine'),
+            'Annulé': $('#kanban-col-annule')
+        };
+        Object.values(colonnes).forEach(c => c.empty());
+        const compteurs = { 'À faire': 0, 'En cours': 0, 'Terminé': 0, 'Annulé': 0 };
+
+        taches.forEach(function (item) {
+            const $colonne = colonnes[item.statut];
+            if (!$colonne) return; // statut inconnu : on ne l'affiche pas en Kanban
+            compteurs[item.statut]++;
+
+            let priorityBadge = '';
+            if (item.priorite === 'Haute') {
+                priorityBadge = '<span class="priority-badge priority-high">Haute</span>';
+            } else if (item.priorite === 'Moyenne') {
+                priorityBadge = '<span class="priority-badge priority-medium">Moyenne</span>';
+            } else {
+                priorityBadge = '<span class="priority-badge priority-low">Basse</span>';
+            }
+
+            let echeanceBadge = '';
+            if (item.date_limite && item.statut !== 'Terminé' && item.statut !== 'Annulé') {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const dateLimiteStr = item.date_limite.slice(0, 10);
+                if (dateLimiteStr < todayStr) {
+                    echeanceBadge = '<span class="status-badge status-danger">En retard</span>';
+                }
+            }
+
+            const $card = $(`
+                <div class="kanban-card" draggable="true" data-id="${item.id}">
+                    <div class="kanban-card-title">${item.titre}</div>
+                    <div class="kanban-card-meta">${priorityBadge}${echeanceBadge}</div>
+                    ${item.assigne_a ? `<div class="kanban-card-assignee"><i class="fas fa-user"></i> ${item.assigne_a}</div>` : ''}
+                </div>
+            `);
+            $card.data('tache', item);
+            $colonne.append($card);
+        });
+
+        $('#kanban-count-a-faire').text(compteurs['À faire']);
+        $('#kanban-count-en-cours').text(compteurs['En cours']);
+        $('#kanban-count-termine').text(compteurs['Terminé']);
+        $('#kanban-count-annule').text(compteurs['Annulé']);
+    }
+
+    // Bascule Vue liste / Vue Kanban
+    $('#btn-vue-liste').on('click', function () {
+        tachesViewMode = 'liste';
+        $(this).addClass('active');
+        $('#btn-vue-kanban').removeClass('active');
+        $('#taches-kanban-view').hide();
+        $('#taches-liste-view').show();
+    });
+    $('#btn-vue-kanban').on('click', function () {
+        tachesViewMode = 'kanban';
+        $(this).addClass('active');
+        $('#btn-vue-liste').removeClass('active');
+        $('#taches-liste-view').hide();
+        $('#taches-kanban-view').show();
+        loadTachesKanban();
+    });
+
+    // Glisser-déposer : déplacer une carte change le statut de la tâche correspondante
+    $(document).on('dragstart', '.kanban-card', function (e) {
+        e.originalEvent.dataTransfer.setData('text/plain', String($(this).data('id')));
+        e.originalEvent.dataTransfer.effectAllowed = 'move';
+        $(this).addClass('dragging');
+    });
+    $(document).on('dragend', '.kanban-card', function () {
+        $(this).removeClass('dragging');
+    });
+    $(document).on('dragover', '.kanban-column-body', function (e) {
+        e.preventDefault(); // requis pour autoriser le drop
+        $(this).addClass('drag-over');
+    });
+    $(document).on('dragleave', '.kanban-column-body', function () {
+        $(this).removeClass('drag-over');
+    });
+    $(document).on('drop', '.kanban-column-body', function (e) {
+        e.preventDefault();
+        $(this).removeClass('drag-over');
+
+        const id = e.originalEvent.dataTransfer.getData('text/plain');
+        const $card = $(`.kanban-card[data-id="${id}"]`);
+        const tache = $card.data('tache');
+        const nouveauStatut = $(this).closest('.kanban-column').data('statut');
+
+        if (!tache || !nouveauStatut || tache.statut === nouveauStatut) return;
+        quickUpdateTache(tache, { statut: nouveauStatut });
+    });
+
     // Gestionnaire de clics "Modifier" pour les utilisateurs
     $('#utilisateurs-page').on('click', '.btn-edit', function () {
         const id = $(this).data('id');
@@ -1828,6 +2814,7 @@ $(document).ready(function () {
                     $('#utilisateur-form').append('<input type="hidden" name="id" value="' + utilisateur.id + '">');
                     $('#nom').val(utilisateur.nom);
                     $('#login').val(utilisateur.login);
+                    $('#email').val(utilisateur.email);
                     $('#role').val(utilisateur.role);
                     $('#mot_de_passe').val(''); // Ne pas afficher le mot de passe
 
@@ -1928,6 +2915,7 @@ $(document).ready(function () {
         const dateAjoutFin = $('#filter-date-ajout-fin').val();
         const dateLimiteDebut = $('#filter-date-limite-debut').val();
         const dateLimiteFin = $('#filter-date-limite-fin').val();
+        const dormanceFilter = $('#filter-dormance').val(); // '' | '7' | '14' | '30'
 
         $('#taches-table tbody tr').each(function () {
             const row = $(this);
@@ -1937,9 +2925,12 @@ $(document).ready(function () {
             const materiel = row.find('td:nth-child(5)').text().trim();
             const assigne = row.find('td:nth-child(6)').text().trim();
             const priorite = row.find('td:nth-child(8) .priority-badge').text().trim();
-            const statut = row.find('td:nth-child(1) .status-badge').text().trim();
+            // .first() : la cellule Statut peut désormais contenir un 2e badge ("Inactive Xj")
+            const statut = row.find('td:nth-child(1) .status-badge').first().text().trim();
             const dateAjout = row.data('date-ajout') || '';
             const dateLimite = row.data('date-limite') || '';
+            const dateModif = row.data('date-modification') || '';
+            const statutRaw = row.data('statut-raw') || '';
 
             // La recherche libre porte sur le titre ET le motif/cause
             const matchesSearch = !searchTerm || titre.indexOf(searchTerm) > -1 || motif.indexOf(searchTerm) > -1;
@@ -1953,17 +2944,35 @@ $(document).ready(function () {
             const matchesDateLimite = (!dateLimiteDebut || (dateLimite && dateLimite >= dateLimiteDebut))
                 && (!dateLimiteFin || (dateLimite && dateLimite <= dateLimiteFin));
 
+            // "Dormante" : tâche encore active (À faire/En cours) et sans mise à jour
+            // depuis au moins N jours — met en évidence les tâches oubliées, avec ou
+            // sans date limite renseignée.
+            let matchesDormance = true;
+            if (dormanceFilter) {
+                const estActive = (statutRaw === 'À faire' || statutRaw === 'En cours');
+                if (!estActive || !dateModif) {
+                    matchesDormance = false;
+                } else {
+                    const seuil = parseInt(dormanceFilter, 10);
+                    const joursInactivite = Math.floor((new Date() - new Date(dateModif)) / 86400000);
+                    matchesDormance = joursInactivite >= seuil;
+                }
+            }
+
             row.toggle(matchesSearch && matchesPriorite && matchesStatut && matchesAssigne
-                && matchesMateriel && matchesService && matchesDateAjout && matchesDateLimite);
+                && matchesMateriel && matchesService && matchesDateAjout && matchesDateLimite
+                && matchesDormance);
         });
 
         // Indique visuellement (hors modale) qu'un filtre avancé est actif : priorité,
-        // matériel ou une période, puisque ces contrôles sont désormais cachés dans la modale.
+        // matériel, une période ou la dormance, puisque ces contrôles sont désormais
+        // cachés dans la modale.
         let nbFiltresAvances = 0;
         if (prioriteFilter) nbFiltresAvances++;
         if (materielFilter) nbFiltresAvances++;
         if (dateAjoutDebut || dateAjoutFin) nbFiltresAvances++;
         if (dateLimiteDebut || dateLimiteFin) nbFiltresAvances++;
+        if (dormanceFilter) nbFiltresAvances++;
 
         const badge = $('#filtres-avances-badge');
         if (nbFiltresAvances > 0) {
@@ -1978,13 +2987,13 @@ $(document).ready(function () {
     // Appliquer les filtres en temps réel
     $('#taches-search, #filter-priorite, #filter-statut, #filter-taches-assigne, ' +
       '#filter-taches-materiel, #filter-taches-service, #filter-date-ajout-debut, ' +
-      '#filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin')
+      '#filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin, #filter-dormance')
         .on('change keyup', filterTaches);
 
     // Réinitialiser tous les filtres de la liste des tâches
     $('#btn-reset-filtres-taches').on('click', function () {
         $('#taches-search').val('');
-        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service').val('');
+        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service, #filter-dormance').val('');
         $('#filter-date-ajout-debut, #filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin').val('');
         filterTaches();
     });
@@ -2008,14 +3017,18 @@ $(document).ready(function () {
     loadParcLifecycle();
     loadServicesDemandeurs();
     loadPannesParMois();
-    
+    loadTopResolveurs();
+
     // Charger les données pour les selects des formulaires
     loadUsersInSelects();
     loadServicesInSelects();
     loadMaterielInSelects();
     loadTypeMaterielInSelects();
 
-    // Rafraîchir automatiquement les données du tableau de bord toutes les 30 secondes
+    // Rafraîchir automatiquement les données, à l'intervalle configuré (Paramètres >
+    // Fréquences ; par défaut 30 secondes).
+    const intervalleRafraichissementMs = appParams.intervalle_rafraichissement_secondes * 1000;
+
     setInterval(function() {
         if ($('#dashboard-page').hasClass('active')) {
             updateDashboardStats();
@@ -2023,14 +3036,15 @@ $(document).ready(function () {
             loadPannesRecurrentes();
             loadServicesDemandeurs();
             loadPannesParMois();
+            loadTopResolveurs();
         }
-    }, 30000); // 30 secondes
+    }, intervalleRafraichissementMs);
 
-    // Rafraîchir les notifications de tâches assignées (badge + pop) toutes les 30
-    // secondes, quelle que soit la page active.
+    // Rafraîchir les notifications de tâches assignées (badge + pop) au même intervalle,
+    // quelle que soit la page active.
     setInterval(function () {
         loadTaskNotifications();
-    }, 30000);
+    }, intervalleRafraichissementMs);
 
     // --- GESTION DE LA SOUMISSION DES FORMULAIRES ---
     // On utilise des gestionnaires d'événements délégués attachés à la modale
@@ -2170,6 +3184,7 @@ $(document).ready(function () {
         const formData = {
             nom: $('#nom').val(),
             login: $('#login').val(),
+            email: $('#email').val(),
             role: $('#role').val(),
             mot_de_passe: $('#mot_de_passe').val(),
             created_by_login: localStorage.getItem('user_login') || '',

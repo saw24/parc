@@ -8,6 +8,8 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0); // ne jamais afficher les erreurs PHP au client (fuite d'infos internes)
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/parametres.php';
+require_once __DIR__ . '/../lib/notifications.php';
 require_once __DIR__ . '/../middleware/auth.php';
 $currentUser = require_auth($pdo);
 
@@ -77,6 +79,21 @@ switch ($actions) {
             $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $date_limite, $actions, $created_by_login, $updated_by_login]);
 
             if ($result) {
+                // Email best-effort : ne doit jamais faire échouer la réponse de création,
+                // même si le SMTP est mal configuré ou indisponible.
+                try {
+                    notify_task_assigned($pdo, get_parametres($pdo), [
+                        'titre' => $titre,
+                        'priorite' => $priorite,
+                        'assigne_a' => $assigne_a,
+                        'service_concerne' => $service_concerne,
+                        'date_limite' => $date_limite,
+                        'description' => $description,
+                    ]);
+                } catch (Throwable $e) {
+                    error_log('Notification email (création tâche) ignorée: ' . $e->getMessage());
+                }
+
                 echo json_encode(['success' => true, 'message' => 'Tâche créée avec succès.']);
             } else {
                 $errorInfo = $stmt->errorInfo();
@@ -124,12 +141,33 @@ switch ($actions) {
         }
 
         try {
+            // Mémorise l'assignation précédente pour ne notifier par email qu'en cas de
+            // réassignation (et non à chaque simple mise à jour de la même tâche).
+            $ancienAssigneStmt = $pdo->prepare("SELECT assigne_a FROM t_taches WHERE id = ?");
+            $ancienAssigneStmt->execute([$id]);
+            $ancienAssigne = $ancienAssigneStmt->fetchColumn();
+
             $sql = "UPDATE t_taches SET titre = ?, motif_cause = ?, description = ?, priorite = ?, statut = ?, assigne_a = ?, materiel_concerne = ?, service_concerne = ?, date_limite = ?, actions = ?, updated_by_login = ? WHERE id = ?";
             $stmt = $pdo->prepare($sql);
 
             $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $date_limite, $actions, $updated_by_login, $id]);
 
             if ($result) {
+                if ($assigne_a !== '' && $assigne_a !== $ancienAssigne) {
+                    try {
+                        notify_task_assigned($pdo, get_parametres($pdo), [
+                            'titre' => $titre,
+                            'priorite' => $priorite,
+                            'assigne_a' => $assigne_a,
+                            'service_concerne' => $service_concerne,
+                            'date_limite' => $date_limite,
+                            'description' => $description,
+                        ]);
+                    } catch (Throwable $e) {
+                        error_log('Notification email (réassignation tâche) ignorée: ' . $e->getMessage());
+                    }
+                }
+
                 echo json_encode(['success' => true, 'message' => 'Tâche mise à jour avec succès.']);
             } else {
                 $errorInfo = $stmt->errorInfo();
@@ -196,22 +234,57 @@ switch ($actions) {
         }
 
         $userName = $_GET['user_name'];
-
+        $params = get_parametres($pdo);
+        $seuilEcheanceProche = (int) $params['seuil_echeance_proche_jours'];
+        $fenetreEfficacite = (int) $params['efficacite_fenetre_jours'];
 
         try {
             $stmt = $pdo->prepare("
                 SELECT
                     SUM(CASE WHEN statut = 'À faire' THEN 1 ELSE 0 END) as new_tasks,
-                    SUM(CASE WHEN statut = 'En cours' THEN 1 ELSE 0 END) as in_progress_tasks
+                    SUM(CASE WHEN statut = 'En cours' THEN 1 ELSE 0 END) as in_progress_tasks,
+                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                             AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
+                        THEN 1 ELSE 0 END) as late_tasks,
+                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                             AND date_limite IS NOT NULL
+                             AND date_limite >= CURRENT_DATE
+                             AND date_limite <= CURRENT_DATE + (? || ' days')::interval
+                        THEN 1 ELSE 0 END) as echeance_proche_tasks,
+                    SUM(CASE WHEN statut = 'Terminé' AND date_modification::date = CURRENT_DATE
+                        THEN 1 ELSE 0 END) as completed_today
                 FROM t_taches
                 WHERE assigne_a = ?
             ");
-            $stmt->execute([$userName]);
+            $stmt->execute([$seuilEcheanceProche, $userName]);
             $stats = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // Ensure we return 0 if counts are null (no tasks)
             $stats['new_tasks'] = (int) $stats['new_tasks'];
             $stats['in_progress_tasks'] = (int) $stats['in_progress_tasks'];
+            $stats['late_tasks'] = (int) $stats['late_tasks'];
+            $stats['echeance_proche_tasks'] = (int) $stats['echeance_proche_tasks'];
+            $stats['completed_today'] = (int) $stats['completed_today'];
+
+            // Jauge d'efficacité : Terminées / (Terminées + En retard), sur les tâches
+            // assignées à l'utilisateur depuis moins de `efficacite_fenetre_jours` jours.
+            // Les tâches encore ouvertes non en retard et les tâches Annulées sont exclues
+            // du calcul (voir backend/config/parametres.php::compute_efficacite_pct).
+            $effStmt = $pdo->prepare("
+                SELECT
+                    SUM(CASE WHEN statut = 'Terminé' THEN 1 ELSE 0 END) as resolues,
+                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                             AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
+                        THEN 1 ELSE 0 END) as en_retard
+                FROM t_taches
+                WHERE assigne_a = ?
+                  AND date_creation >= NOW() - (? || ' days')::interval
+            ");
+            $effStmt->execute([$userName, $fenetreEfficacite]);
+            $effRow = $effStmt->fetch(PDO::FETCH_ASSOC);
+            $efficacitePct = compute_efficacite_pct((int) $effRow['resolues'], (int) $effRow['en_retard']);
+            $stats['efficacite_pct'] = $efficacitePct;
+            $stats['efficacite_zone'] = efficacite_zone($efficacitePct, $params);
 
             // Liste des tâches "À faire" assignées (id + titre), pour permettre au frontend
             // de détecter précisément les nouvelles tâches et afficher une notification.
