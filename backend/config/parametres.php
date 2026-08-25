@@ -40,6 +40,10 @@ function get_default_parametres(): array
         'frequence_escalade_heures'            => '24',
 
         // --- Configuration SMTP ---
+        // 'smtp_provider' ne sert qu'à l'écran Paramètres (mémorise le préréglage choisi
+        // pour pré-remplir hôte/port/chiffrement) ; le backend utilise toujours
+        // smtp_host/smtp_port/smtp_encryption tels quels, quel que soit le fournisseur.
+        'smtp_provider'   => 'custom', // 'custom' | 'gmail' | 'brevo'
         'smtp_host'       => '',
         'smtp_port'       => '587',
         'smtp_encryption' => 'tls', // 'none' | 'tls' | 'ssl'

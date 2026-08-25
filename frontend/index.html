@@ -700,6 +700,15 @@
                         <div class="analytics-row">
                             <div class="analytics-card full-width">
                                 <h3><i class="fas fa-server"></i> Configuration SMTP</h3>
+                                <div class="form-group">
+                                    <label for="smtp_provider">Fournisseur</label>
+                                    <select id="smtp_provider">
+                                        <option value="custom">Personnalisé</option>
+                                        <option value="gmail">Gmail</option>
+                                        <option value="brevo">Brevo (Sendinblue)</option>
+                                    </select>
+                                    <div class="field-hint" id="smtp_provider_hint"></div>
+                                </div>
                                 <div class="form-row">
                                     <div class="form-group">
                                         <label for="smtp_host">Serveur SMTP</label>

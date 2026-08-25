@@ -29,7 +29,11 @@ class SmtpMailer
         $this->port       = (int) ($config['smtp_port'] ?? 587);
         $this->encryption = $config['smtp_encryption'] ?? 'tls';
         $this->username   = trim($config['smtp_username'] ?? '');
-        $this->password   = (string) ($config['smtp_password'] ?? '');
+        // Les espaces sont retirés : un mot de passe d'application Gmail est affiché par
+        // Google en 4 blocs séparés d'espaces ("abcd efgh ijkl mnop") pour la lisibilité —
+        // ces espaces ne font pas partie du mot de passe réel et, collés tels quels,
+        // provoquent un "535 Username and Password not accepted".
+        $this->password   = str_replace(' ', '', (string) ($config['smtp_password'] ?? ''));
         $this->fromEmail  = trim($config['smtp_from_email'] ?? '');
         $this->fromName   = trim($config['smtp_from_name'] ?? '');
         $this->timeout    = $timeout;

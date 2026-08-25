@@ -528,8 +528,46 @@ $(document).ready(function () {
         'intervalle_rafraichissement_secondes',
         'efficacite_fenetre_jours', 'efficacite_seuil_bon', 'efficacite_seuil_moyen',
         'escalade_email_destinataires', 'frequence_digest_heures', 'frequence_escalade_heures',
-        'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_from_email', 'smtp_from_name'
+        'smtp_provider', 'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_from_email', 'smtp_from_name'
     ];
+
+    // Préréglages SMTP : pré-remplissent hôte/port/chiffrement pour un fournisseur connu et
+    // affichent une aide contextuelle (où récupérer les identifiants) — l'admin choisit
+    // ensuite librement (voir la question utilisateur "on donne le choix à l'admin").
+    const SMTP_PRESETS = {
+        gmail: {
+            host: 'smtp.gmail.com', port: '587', encryption: 'tls',
+            hint: 'Nécessite un compte Gmail avec la validation en 2 étapes activée, puis un mot de passe '
+                + "d'application (myaccount.google.com/apppasswords). Nom d'utilisateur = adresse email complète."
+        },
+        brevo: {
+            host: 'smtp-relay.brevo.com', port: '587', encryption: 'tls',
+            hint: 'Compte gratuit sur brevo.com, puis identifiants SMTP dans Paramètres > SMTP & API de votre '
+                + 'compte Brevo. Le mot de passe est la clé SMTP générée, pas le mot de passe du compte.'
+        },
+        custom: {
+            hint: 'Renseignez les informations de connexion fournies par votre serveur ou fournisseur SMTP.'
+        }
+    };
+
+    // Affiche l'aide du fournisseur actuellement sélectionné, sans toucher aux champs
+    // (utilisé au chargement, pour ne pas écraser une config déjà enregistrée).
+    function updateSmtpProviderHint() {
+        const preset = SMTP_PRESETS[$('#smtp_provider').val()] || SMTP_PRESETS.custom;
+        $('#smtp_provider_hint').text(preset.hint);
+    }
+
+    // Changement explicite de fournisseur par l'admin : applique le préréglage
+    // (hôte/port/chiffrement), qui reste ensuite librement modifiable à la main.
+    $('#smtp_provider').on('change', function () {
+        const preset = SMTP_PRESETS[$(this).val()];
+        if (preset && preset.host) {
+            $('#smtp_host').val(preset.host);
+            $('#smtp_port').val(preset.port);
+            $('#smtp_encryption').val(preset.encryption);
+        }
+        updateSmtpProviderHint();
+    });
     const PARAMETRES_CASES_A_COCHER = [
         'email_notifications_actives', 'email_on_nouvelle_tache_assignee',
         'email_on_digest_quotidien', 'email_on_escalade'
@@ -551,6 +589,7 @@ $(document).ready(function () {
             success: function (data) {
                 PARAMETRES_CHAMPS_TEXTE.forEach(cle => $('#' + cle).val(data[cle] ?? ''));
                 PARAMETRES_CASES_A_COCHER.forEach(cle => $('#' + cle).prop('checked', data[cle] === '1'));
+                updateSmtpProviderHint(); // affiche l'aide sans écraser les champs déjà chargés
 
                 $('#smtp_password_hint').text(
                     data.smtp_password_configure
@@ -590,15 +629,19 @@ $(document).ready(function () {
                 if (response.success) {
                     $('#parametres-save-status').text('Enregistré.');
                     $('#smtp_password').val('');
+                    showToast('Paramètres enregistrés', 'Les modifications ont été prises en compte.', 'fa-check-circle');
                     loadParametres(); // recharge (met à jour l'indication mot de passe, etc.)
                 } else {
-                    $('#parametres-save-status').text('Erreur : ' + (response.error || 'une erreur est survenue.'));
+                    const message = response.error || 'Une erreur est survenue.';
+                    $('#parametres-save-status').text('Erreur : ' + message);
+                    showToast('Échec de l\'enregistrement', message, 'fa-triangle-exclamation');
                 }
             },
             error: function (xhr) {
                 let message = 'Erreur lors de l\'enregistrement.';
-                try { message = 'Erreur : ' + (JSON.parse(xhr.responseText).error || message); } catch (e) {}
-                $('#parametres-save-status').text(message);
+                try { message = JSON.parse(xhr.responseText).error || message; } catch (e) {}
+                $('#parametres-save-status').text('Erreur : ' + message);
+                showToast('Échec de l\'enregistrement', message, 'fa-triangle-exclamation');
             }
         });
     });
@@ -2498,13 +2541,15 @@ $(document).ready(function () {
             });
         }
     });
-    // Cliquer n'importe où sur une ligne de la liste des tâches ouvre directement sa
-    // modification — évite de devoir viser le petit crayon, surtout au doigt sur mobile.
-    // Les clics sur les boutons d'action (crayon inclus) sont ignorés ici : ils ont déjà
-    // leur propre gestionnaire, plus bas, pas besoin de le déclencher deux fois.
-    $('#taches-table tbody').on('click', 'tr', function (e) {
-        if ($(e.target).closest('.btn-action').length) return;
-        $(this).find('.btn-edit').trigger('click');
+    // Cliquer n'importe où sur une ligne (tâches, matériel, services, utilisateurs) ouvre
+    // directement sa modification — évite de devoir viser le petit crayon, surtout au doigt
+    // sur mobile. Les clics sur les boutons d'action (crayon inclus) sont ignorés ici : ils
+    // ont déjà leur propre gestionnaire, plus bas, pas besoin de le déclencher deux fois.
+    ['#taches-table', '#materiel-table', '#services-table', '#utilisateurs-table'].forEach(function (tableSelector) {
+        $(tableSelector + ' tbody').on('click', 'tr', function (e) {
+            if ($(e.target).closest('.btn-action').length) return;
+            $(this).find('.btn-edit').trigger('click');
+        });
     });
 
     // Gestionnaire de clics "Modifier" pour les tâches

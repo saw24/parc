@@ -379,9 +379,12 @@ thead th {
 tbody tr:hover {
   background-color: var(--color-bg);
 }
-/* Ligne entière cliquable (ouvre la modification) sur la liste des tâches — pratique au
-   doigt sur mobile, pas besoin de viser le crayon. */
-#taches-table tbody tr {
+/* Ligne entière cliquable (ouvre la modification) — pratique au doigt sur mobile, pas
+   besoin de viser le crayon. */
+#taches-table tbody tr,
+#materiel-table tbody tr,
+#services-table tbody tr,
+#utilisateurs-table tbody tr {
   cursor: pointer;
 }
 .status-badge {
