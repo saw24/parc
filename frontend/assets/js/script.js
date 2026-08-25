@@ -1,0 +1,2392 @@
+// Ajoute automatiquement le token de session à tous les appels vers l'API
+// backend (les API métier exigent désormais une session valide). Évite de
+// modifier individuellement chacun des appels $.ajax existants.
+// Passe par des en-têtes HTTP (pas par `data`) : muter `options.data` dans un
+// ajaxPrefilter casse la sérialisation interne de jQuery ("v.data.replace is
+// not a function"), les en-têtes n'ont pas ce problème.
+$.ajaxPrefilter(function (options) {
+    if (typeof options.url === 'string' && options.url.indexOf('backend/api/') !== -1) {
+        const sessionToken = localStorage.getItem('session_token');
+        const userId = localStorage.getItem('user_id');
+        if (sessionToken && userId) {
+            options.headers = $.extend({}, options.headers, {
+                'X-Session-Token': sessionToken,
+                'X-User-Id': userId
+            });
+        }
+    }
+});
+
+$(document).ready(function () {
+
+    // --- GESTION DE L'AUTHENTIFICATION ---
+
+    // Vérifier si l'utilisateur est connecté
+    checkAuthentication();
+
+    // Fonction pour vérifier l'authentification
+    function checkAuthentication() {
+        const sessionToken = localStorage.getItem('session_token');
+        const userId = localStorage.getItem('user_id');
+        
+        if (!sessionToken || !userId) {
+            // Pas de session, rediriger vers la page de connexion
+            window.location.href = 'login.html';
+            return;
+        }
+        
+        // Vérifier la validité de la session
+        $.ajax({
+            url: '../backend/api/auth.php?action=check_session',
+            type: 'POST',
+            data: {
+                session_token: sessionToken,
+                user_id: userId
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Session valide, charger les informations utilisateur
+                    loadUserInfo();
+                    loadTaskNotifications(); // Charger les notifications de tâches
+                } else {
+                    // Session invalide, rediriger vers la page de connexion
+                    clearSession();
+                    window.location.href = 'login.html';
+                }
+            },
+            error: function() {
+                // Erreur de communication, rediriger vers la page de connexion
+                clearSession();
+                window.location.href = 'login.html';
+            }
+        });
+    }
+
+    // Fonction pour charger les informations utilisateur
+    function loadUserInfo() {
+        const sessionToken = localStorage.getItem('session_token');
+        const userId = localStorage.getItem('user_id');
+        
+        $.ajax({
+            url: '../backend/api/auth.php?action=get_user_info',
+            type: 'POST',
+            data: {
+                session_token: sessionToken,
+                user_id: userId
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Afficher les informations utilisateur
+                    $('#user-name').text(response.user.nom);
+                    $('#user-full-name').text(response.user.nom);
+                    $('#user-role').text(response.user.role);
+                    // Stocker le login pour la traçabilité
+                    if (response.user.login) {
+                        localStorage.setItem('user_login', response.user.login);
+                    }
+                }
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des informations utilisateur');
+            }
+        });
+    }
+
+    // --- Notifications pop (toasts) ---
+    // Affiche une notification qui disparaît d'elle-même après quelques secondes.
+    // Cliquer dessus (ou sur la croix) la ferme immédiatement.
+    function showToast(title, message, icon = 'fa-bell') {
+        const $container = $('#toast-container');
+        const $toast = $(`
+            <div class="toast">
+                <div class="toast-icon"><i class="fas ${icon}"></i></div>
+                <div class="toast-body">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+                <div class="toast-close"><i class="fas fa-times"></i></div>
+            </div>
+        `);
+
+        function fermer() {
+            $toast.addClass('toast-hiding');
+            setTimeout(() => $toast.remove(), 250);
+        }
+
+        $toast.on('click', fermer);
+        $container.append($toast);
+        setTimeout(fermer, 6000);
+    }
+
+    // Mémorise les tâches déjà notifiées (par utilisateur), pour ne notifier qu'une
+    // seule fois par tâche même après un rechargement de page.
+    function getTachesNotifiees() {
+        const userId = localStorage.getItem('user_id');
+        try {
+            return JSON.parse(localStorage.getItem(`notified_task_ids_${userId}`)) || [];
+        } catch (e) {
+            return [];
+        }
+    }
+    function setTachesNotifiees(ids) {
+        const userId = localStorage.getItem('user_id');
+        localStorage.setItem(`notified_task_ids_${userId}`, JSON.stringify(ids));
+    }
+
+    // Fonction pour charger les notifications de tâches
+    function loadTaskNotifications() {
+        const userName   = localStorage.getItem('user_name');
+        if (!userName) return;
+
+        $.ajax({
+            url: `../backend/api/taches.php?action=user_task_stats&user_name=${userName}`,
+            type: 'GET',
+            dataType: 'json',
+            success: function (stats) {
+                const { new_tasks, in_progress_tasks, new_tasks_list } = stats;
+
+                // Badge pour les nouvelles tâches (positionné sur l'icône utilisateur)
+                const $newBadge = $('#new-tasks-badge');
+                if (new_tasks > 0) {
+                    $newBadge.text(new_tasks > 99 ? '99+' : new_tasks).show();
+                } else {
+                    $newBadge.hide();
+                }
+
+                // Badge pour les tâches en cours
+                const $inProgressBadge = $('#in-progress-tasks-badge');
+                if (in_progress_tasks > 0) {
+                    $inProgressBadge.text(in_progress_tasks).show();
+                } else {
+                    $inProgressBadge.hide();
+                }
+
+                // Notification pop pour chaque tâche "À faire" pas encore notifiée
+                if (Array.isArray(new_tasks_list) && new_tasks_list.length > 0) {
+                    const dejaNotifiees = getTachesNotifiees();
+                    const nouvelles = new_tasks_list.filter(t => !dejaNotifiees.includes(t.id));
+
+                    if (nouvelles.length > 0) {
+                        if (nouvelles.length === 1) {
+                            showToast('Nouvelle tâche assignée', nouvelles[0].titre, 'fa-tasks');
+                        } else {
+                            showToast(
+                                'Nouvelles tâches assignées',
+                                `Vous avez ${nouvelles.length} nouvelles tâches à traiter.`,
+                                'fa-tasks'
+                            );
+                        }
+                        setTachesNotifiees(dejaNotifiees.concat(nouvelles.map(t => t.id)));
+                    }
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error("Erreur lors du chargement des notifications de tâches:", error);
+            }
+        });
+    }
+
+    // Ajout des gestionnaires d'événements pour les badges
+    $(document).on('click', '#new-tasks-badge', function(e) {
+        e.stopPropagation(); // Évite de déclencher aussi l'ouverture du menu utilisateur
+        const page = $(this).data('page');
+
+        if (page) {
+            // Simuler un clic sur le menu pour changer de page
+            $(`.sidebar-menu a[href="#${page}"]`).click();
+            $('#filter-statut').val('À faire').change(); // On met le filtre sur 'À faire'
+        }
+
+    });
+
+    $(document).on('click', '#in-progress-tasks-badge', function() {
+        const page = $(this).data('page');
+        const filter = $(this).data('filter');
+
+        if (page) {
+            // Simuler un clic sur le menu pour changer de page
+            $(`.sidebar-menu a[href="#${page}"]`).click();
+            $('#filter-statut').val('En cours').change(); // On met le filtre sur 'En cours'
+        }
+        
+        
+    });
+
+
+    // Fonction pour nettoyer la session
+    function clearSession() {
+        localStorage.removeItem('user_id');
+        localStorage.removeItem('user_name');
+        localStorage.removeItem('user_role');
+        localStorage.removeItem('user_login');
+        localStorage.removeItem('session_token');
+    }
+
+    // Gestion de la déconnexion
+    $('#logout-btn').on('click', function() {
+        const sessionToken = localStorage.getItem('session_token');
+        
+        $.ajax({
+            url: '../backend/api/auth.php?action=logout',
+            type: 'POST',
+            data: {
+                session_token: sessionToken
+            },
+            dataType: 'json',
+            success: function(response) {
+                clearSession();
+                window.location.href = 'login.html';
+            },
+            error: function() {
+                // Même en cas d'erreur, nettoyer la session locale
+                clearSession();
+                window.location.href = 'login.html';
+            }
+        });
+    });
+
+    // Gestion du menu utilisateur
+    $('#user-menu-toggle').on('click', function() {
+        $('.user-menu').toggleClass('open');
+    });
+
+    // Fermer le menu utilisateur en cliquant ailleurs
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('.user-menu').length) {
+            $('.user-menu').removeClass('open');
+        }
+    });
+
+    // --- Gestion du Menu Latéral (Sidebar) ---
+    $('#menu-toggle').on('click', function (event) {
+        event.stopPropagation();
+        $('body').toggleClass('sidebar-open');
+    });
+
+    $('#main-content').on('click', function () {
+        if ($('body').hasClass('sidebar-open') && $(window).width() <= 768) {
+            $('body').removeClass('sidebar-open');
+        }
+    });
+
+    // --- Navigation entre les pages ---
+    $('.sidebar-menu a').on('click', function (e) {
+        e.preventDefault();
+
+        $('.sidebar-menu li').removeClass('active');
+        $(this).parent('li').addClass('active');
+
+        const newTitle = $(this).data('title');
+        $('#main-title').text(newTitle);        
+
+        const targetPage = $(this).attr('href');
+        $('.page-content').removeClass('active');
+        $(targetPage + '-page').addClass('active');
+
+        if ($(window).width() <= 768) {
+            $('body').removeClass('sidebar-open');
+        }
+        loadMateriel();
+        loadTaches();
+        loadServices();
+        loadUtilisateurs();
+        if (newTitle === 'Gestion du Matériel') {
+            updateTotalCount('#materiel-table', '#main-title', newTitle);
+        }else if(newTitle === 'Gestion des Tâches') {
+            updateTotalCount('#taches-table', '#main-title', newTitle);
+        }else if(newTitle === 'Gestion des Services') {
+            updateTotalCount('#services-table', '#main-title', newTitle);
+        }else if(newTitle === 'Gestion des Utilisateurs') {
+            updateTotalCount('#utilisateurs-table', '#main-title', newTitle);
+        }
+    });
+
+
+    // =================================================================
+    // NOUVELLE LOGIQUE POUR LE MATERIEL
+    // =================================================================
+
+    // Fonction pour charger et afficher le matériel depuis l'API
+    function loadMateriel() {
+         const userRole = localStorage.getItem('user_role');
+        const userId = localStorage.getItem('user_id');
+
+        $.ajax({
+            url: '../backend/api/materiel.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                const tableBody = $('#materiel-table tbody');
+                tableBody.empty();
+
+                const types = new Set();
+                const statuts = new Set();
+
+                $.each(data, function (index, item) {
+                    // Création des badges de statut avec les bonnes couleurs
+                    let statusBadge = '';
+                    if (item.statut === 'En service') {
+                        statusBadge = '<span class="status-badge status-success">En service</span>';
+                    } else if (item.statut === 'En panne') {
+                        statusBadge = '<span class="status-badge status-danger">En panne</span>';
+                    } else if (item.statut === 'En attente') {
+                        statusBadge = '<span class="status-badge status-warning">En attente</span>';
+                    } else {
+                        statusBadge = '<span class="status-badge status-info">' + item.statut + '</span>';
+                    }
+
+                    const dateDerniereAffect = item.date_derniere_affect
+                        ? new Date(item.date_derniere_affect).toLocaleDateString('fr-FR')
+                        : '-';
+
+                    const row = `
+                        <tr>
+                            <td>${item.type}</td>
+                            <td>${item.marque} ${item.modele}</td>
+                            <td>${item.num_serie}</td>
+                            <td>${item.utilisateur_assigne || '-'}</td>
+                            <td>${item.service_affecte || '-'}</td>
+                            <td>${dateDerniereAffect}</td>
+                            <td>${statusBadge}</td>
+                            <td class="actions">
+                                <button class="btn-action btn-qrcode" data-id="${item.id}" data-label="${item.type} ${item.marque} ${item.modele}" data-serie="${item.num_serie || ''}" data-service="${item.service_affecte || ''}" title="Étiquette d'inventaire (QR code)"><i class="fas fa-qrcode"></i></button>
+                                <button class="btn-action btn-historique" data-id="${item.id}" data-label="${item.type} ${item.marque} ${item.modele} (${item.num_serie})" title="Historique d'affectation"><i class="fas fa-history"></i></button>
+                                <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
+                                <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.append(row);
+                });
+
+
+
+            },
+            error: function (xhr, status, error) {
+                console.error("Erreur lors du chargement du matériel:", error);
+                $('#materiel-table tbody').html('<tr><td colspan="8" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
+            }
+        });
+    }
+
+    // Affiche l'historique d'affectation (utilisateur/service) d'un matériel dans la modale
+    function showMaterielHistorique(materielId, label) {
+        $.ajax({
+            url: '../backend/api/materiel.php?action=historique_affectations&id=' + materielId,
+            type: 'GET',
+            dataType: 'json',
+            success: function (historique) {
+                let rows = '';
+                if (!historique || historique.length === 0) {
+                    rows = '<tr><td colspan="4" style="text-align:center;">Aucun historique d\'affectation.</td></tr>';
+                } else {
+                    historique.forEach(function (h) {
+                        const debut = new Date(h.date_debut).toLocaleDateString('fr-FR');
+                        const fin = h.date_fin ? new Date(h.date_fin).toLocaleDateString('fr-FR') : '<em>En cours</em>';
+                        rows += `
+                            <tr>
+                                <td>${h.utilisateur_assigne || '-'}</td>
+                                <td>${h.service_affecte || '-'}</td>
+                                <td>${debut}</td>
+                                <td>${fin}</td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                modalTitle.text(`Historique d'affectation — ${label}`);
+                modalBody.html(`
+                    <table class="simple-table">
+                        <thead>
+                            <tr><th>Utilisateur</th><th>Service</th><th>Depuis</th><th>Jusqu'à</th></tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                `);
+                modalFooter.html('<button type="button" class="btn btn-secondary" id="modal-cancel">Fermer</button>');
+                setModalSize('md');
+                modal.css('display', 'flex');
+            },
+            error: function () {
+                alert('Erreur lors du chargement de l\'historique d\'affectation.');
+            }
+        });
+    }
+
+    // Affiche une étiquette d'inventaire (QR code + infos) pour un matériel, imprimable
+    function showMaterielQRCode(materielId, label, numSerie, service) {
+        let contenuBrut = `${label} | SN:${numSerie || 'N/A'} | ID:${materielId}`;
+        if (service) {
+            contenuBrut += ` | Service:${service}`;
+        }
+        // QRCode.js (bibliothèque ancienne) calcule mal la taille nécessaire dès que le
+        // texte contient des caractères accentués (UTF-8 multi-octets) et plante avec
+        // "code length overflow" même sur un texte court. On neutralise les accents
+        // (é → e, à → a, etc.) pour rester en ASCII simple, sans risque.
+        const contenu = contenuBrut.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        modalTitle.text(`Étiquette d'inventaire — ${label}`);
+        modalBody.html(`
+            <div id="qrcode-etiquette" style="text-align:center; padding: 10px;">
+                <div id="qrcode-render" style="display:inline-block;"></div>
+                <div style="margin-top:10px; font-weight:600;">${label}</div>
+                <div style="color:#666;">N° série : ${numSerie || 'N/A'}</div>
+                ${service ? `<div style="color:#666;">Service : ${service}</div>` : ''}
+            </div>
+        `);
+        modalFooter.html(`
+            <button type="button" class="btn btn-secondary" id="modal-cancel">Fermer</button>
+            <button type="button" id="btn-imprimer-etiquette" class="btn btn-primary">
+                <i class="fas fa-print"></i> Imprimer l'étiquette
+            </button>
+        `);
+        setModalSize('sm');
+        modal.css('display', 'flex');
+
+        // QRCode.js a besoin que le conteneur soit déjà dans le DOM.
+        // typeNumber: 0 laisse la bibliothèque choisir automatiquement la taille de
+        // QR code adaptée à la longueur du texte (sans ça, elle utilise une petite
+        // taille fixe et plante avec "code length overflow" dès que le texte est un
+        // peu long : type + marque + modèle + n° série dépasse vite cette limite).
+        new QRCode(document.getElementById('qrcode-render'), {
+            text: contenu,
+            width: 180,
+            height: 180,
+            typeNumber: 0,
+            correctLevel: QRCode.CorrectLevel.M
+        });
+    }
+
+    // Impression ciblée sur la seule étiquette (masque le reste de la page via CSS d'impression)
+    $(document).on('click', '#btn-imprimer-etiquette', function () {
+        window.print();
+    });
+
+    function populateFilter(selector, items, defaultOptionText) {
+        const filter = $(selector);
+        filter.empty().append(`<option value="">${defaultOptionText}</option>`);
+        items.forEach(item => {
+            if (item) filter.append(`<option value="${item}">${item}</option>`);
+        });
+    }
+
+    // Fonction pour filtrer le tableau de matériel
+    function filterMateriel() {
+        const searchText = $('#materiel-search').val().toLowerCase();
+        const selectedType = $('#filter-materiel-type').val();
+        const selectedStatut = $('#filter-materiel-statut').val();
+        const selectedService = $('#filter-materiel-service').val();
+
+        $('#materiel-table tbody tr').each(function () {
+            const row = $(this);
+            const rowText = row.text().toLowerCase();
+            const rowType = row.find('td:nth-child(1)').text();
+            const rowStatut = row.find('td:nth-child(7) span').text().trim();
+            const rowService = row.find('td:nth-child(5)').text();
+
+            const textMatch = rowText.includes(searchText);
+            const typeMatch = !selectedType || rowType === selectedType;
+            const statutMatch = !selectedStatut || rowStatut === selectedStatut;
+            const serviceMatch = !selectedService || rowService === selectedService;
+
+            if (textMatch && typeMatch && statutMatch && serviceMatch) {
+                row.show();
+            } else {
+                row.hide();
+            }
+        });
+        //updateTotalCount('#materiel-table', '#materiel-total');
+    }
+
+    // Appliquer les filtres en temps réel pour le matériel
+    $('#materiel-search, #filter-materiel-type, #filter-materiel-statut, #filter-materiel-service').on('change keyup', filterMateriel);
+
+    // Fonction pour charger et afficher les services depuis l'API
+    function loadServices() {
+         const userRole = localStorage.getItem('user_role');
+        const userId = localStorage.getItem('user_id');
+
+        $.ajax({
+            url: '../backend/api/services.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                const tableBody = $('#services-table tbody');
+                tableBody.empty(); // On vide la table avant de la remplir
+
+                if (data.length === 0) {
+                    tableBody.append('<tr><td colspan="3" style="text-align:center;">Aucun service trouvé.</td></tr>');
+                } else {
+                    $.each(data, function (index, item) {
+                        const row = `
+                            <tr>
+                                <td>${item.nom}</td>
+                                <td>${item.description || '-'}</td>
+                                <td class="actions">
+                                    <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
+                                    <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
+                                </td>
+                            </tr>
+                        `;
+                        tableBody.append(row);
+                    });
+                }
+                //updateTotalCount('#services-table', '#services-total');
+            },
+            error: function (xhr, status, error) {
+                console.error("Erreur lors du chargement des services:", error);
+                $('#services-table tbody').html('<tr><td colspan="3" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
+            }
+        });
+    }
+
+    // Fonction pour charger et afficher les utilisateurs depuis l'API
+    function loadUtilisateurs() {
+        const userRole = localStorage.getItem('user_role');
+        const userId = localStorage.getItem('user_id');
+        let apiUrl = '../backend/api/utilisateurs.php?action=read';
+
+        if (userRole !== 'Administrateur') {
+            apiUrl += `&id=${userId}`;
+        }
+
+        //console.log("URL de l'API des utilisateurs: " + apiUrl);
+
+
+        $.ajax({
+            url: apiUrl,
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                const tableBody = $('#utilisateurs-table tbody');
+                tableBody.empty(); // On vide la table avant de la remplir
+
+                if (data.length === 0) {
+                    tableBody.append('<tr><td colspan="4" style="text-align:center;">Aucun utilisateur trouvé.</td></tr>');
+                } else {
+                    $.each(data, function (index, item) {
+                        //console.log("User data from server: " + item);  
+                        const row = `
+                            <tr>
+                                <td>${item.nom}</td>
+                                <td>${item.login}</td>
+                                <td>${item.role}</td>
+                                <td class="actions">
+                                    <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
+                                    <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
+                                </td>
+                            </tr>
+                        `;
+                        tableBody.append(row);
+                    });
+                }
+                //updateTotalCount('#utilisateurs-table', '#utilisateurs-total');
+            },
+            error: function (xhr, status, error) {
+                console.error("Erreur lors du chargement des utilisateurs:", error);
+                $('#utilisateurs-table tbody').html('<tr><td colspan="4" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
+            }
+        });
+    }
+
+    // Fonction pour charger et afficher les tâches depuis l'API
+    function loadTaches(filterDate = null, filterStatut = null) {
+        const userRole = localStorage.getItem('user_role');
+        const userName = localStorage.getItem('user_name');
+        let apiUrl = '../backend/api/taches.php?action=read';
+
+        // Si l'utilisateur n'est pas admin et qu'aucun filtre n'est appliqué, afficher ses tâches
+        //if (userRole !== 'Administrateur' && !filterDate && !filterStatut) {
+
+        //console.log("Role de l'utilisateur: " + userRole);
+
+        // Si l'utilisateur n'est pas admin, afficher ses tâches
+        /*if (userRole !== 'Administrateur' && !filterDate && !filterStatut) {
+            apiUrl += `&assigne_a=${userName}`;
+        }*/
+        //console.log("URL de l'API de la liste des taches: " + apiUrl);
+
+        $.ajax({
+            url: apiUrl,
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                const tableBody = $('#taches-table tbody');
+                tableBody.empty();
+
+                let taches = data;
+
+                // Filtrage des tâches si un filtre est appliqué
+                if (filterDate) {
+                    const today = new Date().toISOString().slice(0, 10);
+                    if (filterDate === 'crees_aujourdhui') {
+                        taches = taches.filter(t => t.date_creation.slice(0, 10) === today);
+                    } else if (filterDate === 'terminees_aujourdhui') {
+                        taches = taches.filter(t => t.statut === 'Terminé' && t.date_modification.slice(0, 10) === today);
+                    } else if (filterDate === 'en_retard') {
+                        taches = taches.filter(t => t.date_limite && t.date_limite.slice(0, 10) < today
+                            && t.statut !== 'Terminé' && t.statut !== 'Annulé');
+                    } else if (filterDate === 'echeance_proche') {
+                        const dans3jours = new Date();
+                        dans3jours.setDate(dans3jours.getDate() + 3);
+                        const dans3joursStr = dans3jours.toISOString().slice(0, 10);
+                        taches = taches.filter(t => t.date_limite && t.date_limite.slice(0, 10) >= today
+                            && t.date_limite.slice(0, 10) <= dans3joursStr
+                            && t.statut !== 'Terminé' && t.statut !== 'Annulé');
+                    }
+                }
+
+                
+
+                // Filtrage des tâches par statut en provenance des badges
+                if (filterStatut) {
+                    if (filterStatut === 'À faire') {
+                        taches = taches.filter(t => t.statut === 'À faire');
+                    } else if (filterStatut === 'En cours') {
+                        taches = taches.filter(t => t.statut === 'En cours');
+                    } else if (filterStatut === 'Terminé') {
+                        taches = taches.filter(t => t.statut === 'Terminé');
+                    } else if (filterStatut === 'Annulé') {
+                        taches = taches.filter(t => t.statut === 'Annulé');
+                    } 
+                }
+
+                /*// Filtrage des tâches par priorité en provenance des badges
+                if (filterPriorite) {
+                    if (filterPriorite === 'Haute') {
+                        taches = taches.filter(t => t.priorite === 'Haute');
+                    } else if (filterPriorite === 'Moyenne') {
+                        taches = taches.filter(t => t.priorite === 'Moyenne');
+                    } else if (filterPriorite === 'Basse') {
+                        taches = taches.filter(t => t.priorite === 'Basse');
+                    } 
+                }*/
+
+                //console.log("Taches filtrées: " + JSON.stringify(taches));
+
+                taches.forEach(item => {
+                    // Création des badges de priorité
+                    let priorityBadge = '';
+                    if (item.priorite === 'Haute') {
+                        priorityBadge = '<span class="priority-badge priority-high">Haute</span>';
+                    } else if (item.priorite === 'Moyenne') {
+                        priorityBadge = '<span class="priority-badge priority-medium">Moyenne</span>';
+                    } else {
+                        priorityBadge = '<span class="priority-badge priority-low">Basse</span>';
+                    }
+
+                    // Création des badges de statut
+                    let statusBadge = '';
+                    if (item.statut === 'Terminé') {
+                        statusBadge = '<span class="status-badge status-success">Terminé</span>';
+                    } else if (item.statut === 'En cours') {
+                        statusBadge = '<span class="status-badge status-warning">En cours</span>';
+                    } else if (item.statut === 'Annulé') {
+                        statusBadge = '<span class="status-badge status-danger">Annulé</span>';
+                    } else {
+                        statusBadge = '<span class="status-badge status-info">À faire</span>';
+                    }
+
+                    // Formatage de la date limite
+                    const dateLimite = item.date_limite ? new Date(item.date_limite).toLocaleDateString('fr-FR') : '-';
+
+                    // Badge de retard / échéance proche (tâches non terminées/annulées uniquement)
+                    let echeanceBadge = '';
+                    if (item.date_limite && item.statut !== 'Terminé' && item.statut !== 'Annulé') {
+                        const todayStr = new Date().toISOString().slice(0, 10);
+                        const dans3jours = new Date();
+                        dans3jours.setDate(dans3jours.getDate() + 3);
+                        const dans3joursStr = dans3jours.toISOString().slice(0, 10);
+                        const dateLimiteStr = item.date_limite.slice(0, 10);
+
+                        if (dateLimiteStr < todayStr) {
+                            echeanceBadge = ' <span class="status-badge status-danger" title="Date limite dépassée">En retard</span>';
+                        } else if (dateLimiteStr <= dans3joursStr) {
+                            echeanceBadge = ' <span class="status-badge status-warning" title="Échéance dans moins de 3 jours">Bientôt</span>';
+                        }
+                    }
+
+                    // Dates brutes (YYYY-MM-DD) stockées en attributs data-* pour un filtrage fiable
+                    const dateAjoutRaw = item.date_creation ? item.date_creation.slice(0, 10) : '';
+                    const dateLimiteRaw = item.date_limite ? item.date_limite.slice(0, 10) : '';
+
+                    const row = `
+                        <tr data-date-ajout="${dateAjoutRaw}" data-date-limite="${dateLimiteRaw}">
+                            <td>${statusBadge}</td>
+                            <td>${item.titre}</td>
+                            <td>${item.motif_cause || '-'}</td>
+                            <td>${item.service_concerne || '-'}</td>
+                            <td>${item.materiel_concerne || '-'}</td>
+                            <td>${item.assigne_a || '-'}</td>
+                            <td>${dateLimite}${echeanceBadge}</td>
+                            <td>${priorityBadge}</td>
+                            <td class="actions">
+                                <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
+                                <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.append(row);
+                });
+
+                // Alimente les filtres "Assigné à", "Matériel concerné" et "Service" avec
+                // les valeurs distinctes réellement présentes dans les tâches chargées.
+                populerFiltreDepuisValeurs('#filter-taches-assigne', taches.map(t => t.assigne_a));
+                populerFiltreDepuisValeurs('#filter-taches-materiel', taches.map(t => t.materiel_concerne));
+                populerFiltreDepuisValeurs('#filter-taches-service', taches.map(t => t.service_concerne));
+
+                //updateTotalCount('#taches-table', '#taches-total');
+            },
+            error: function (xhr, status, error) {
+                console.error("Erreur lors du chargement des tâches:", error);
+                $('#taches-table tbody').html('<tr><td colspan="7" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
+            }
+        });
+    }
+
+    // Remplit un <select> de filtre avec les valeurs distinctes (non vides) d'une liste,
+    // en conservant la sélection courante si elle existe toujours parmi les options.
+    function populerFiltreDepuisValeurs(selector, valeurs) {
+        const select = $(selector);
+        if (select.length === 0) return;
+
+        const valeurActuelle = select.val();
+        const distinctes = [...new Set(valeurs.filter(v => v))].sort((a, b) => a.localeCompare(b));
+
+        select.find('option:not(:first)').remove();
+        distinctes.forEach(function (v) {
+            select.append(`<option value="${v}">${v}</option>`);
+        });
+
+        if (valeurActuelle && distinctes.includes(valeurActuelle)) {
+            select.val(valeurActuelle);
+        }
+    }
+
+    // Fonction pour mettre à jour les statistiques du tableau de bord
+    function updateDashboardStats() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=stats',
+            type: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                // Mettre à jour les cartes de statistiques
+                $('.card-value').eq(0).text(data.materiel.total);
+                $('.card-value').eq(1).text(data.materiel.en_panne);
+                $('.card-value').eq(2).text(data.taches.en_cours);
+                $('#taches-crees-aujourdhui').text(data.taches.crees_aujourdhui);
+                $('#taches-terminees-aujourdhui').text(data.taches.terminees_aujourdhui);
+                $('#taches-total').text(data.taches.total);
+                $('#taches-en-retard').text(data.taches.en_retard);
+                $('#taches-echeance-proche').text(data.taches.echeance_proche);
+                $('#materiel-pannes-sans-tache').text(data.materiel.pannes_sans_tache);
+
+               // $('.card-value').eq(5).text(data.services.total); // Ajustez l'index si nécessaire
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des statistiques du tableau de bord');
+            }
+        });
+    }
+
+    // Fonction pour charger les utilisateurs dans les selects
+    function loadUsersInSelects() {
+        $.ajax({
+            url: '../backend/api/utilisateurs.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(users) {
+                // Mettre à jour le select des tâches
+                const tacheSelect = $('#tache-assigne');
+                tacheSelect.find('option:not(:first)').remove();
+                users.forEach(function(user) {
+                    tacheSelect.append(`<option value="${user.nom}">${user.nom} (${user.role})</option>`);
+                });
+
+                // Mettre à jour le select du matériel
+                const materielSelect = $('#utilisateur');
+                materielSelect.find('option:not(:first)').remove();
+                users.forEach(function(user) {
+                    materielSelect.append(`<option value="${user.nom}">${user.nom} (${user.role})</option>`);
+                });
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des utilisateurs pour les selects');
+            }
+        });
+    }
+
+    // Fonction pour charger les types de matériel dans le select du formulaire Matériel
+    // (table t_type_materiel, jusqu'ici créée mais jamais utilisée par le frontend)
+    function loadTypeMaterielInSelects() {
+        $.ajax({
+            url: '../backend/api/type_materiel.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(types) {
+                const typeSelect = $('#type');
+                if (typeSelect.length === 0) return;
+
+                const currentValue = typeSelect.val();
+                // On garde le placeholder et l'option "+ Ajouter un type", on remplace le reste
+                typeSelect.find('option').not('[value=""]').not('[value="__new__"]').remove();
+                const newOption = typeSelect.find('option[value="__new__"]');
+                types.forEach(function(t) {
+                    $(`<option value="${t.type}">${t.type}</option>`).insertBefore(newOption);
+                });
+
+                if (currentValue && currentValue !== '__new__') {
+                    typeSelect.val(currentValue);
+                }
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des types de matériel');
+            }
+        });
+    }
+
+    // Fonction pour charger les services dans les selects
+    function loadServicesInSelects() {
+        $.ajax({
+            url: '../backend/api/services.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(services) {
+                // Mettre à jour le select du matériel
+                const serviceSelect = $('#service');
+                serviceSelect.find('option:not(:first)').remove();
+                services.forEach(function(service) {
+                    serviceSelect.append(`<option value="${service.nom}">${service.nom}</option>`);
+                });
+
+                // Mettre à jour le select des tâches
+                const tacheServiceSelect = $('#tache-service');
+                const materielServiceSelect = $('#filter-materiel-service');
+                if (tacheServiceSelect.length > 0) {
+                    // Store current selected value before updating
+                    const currentValue = tacheServiceSelect.val();
+                    console.log("Combo Service Tache currentValue:", currentValue);
+                    // Update options
+                    tacheServiceSelect.find('option:not(:first)').remove();
+                    services.forEach(function(service) {
+                        tacheServiceSelect.append(`<option value="${service.nom}">${service.nom}</option>`);
+
+                    });
+                    
+                    // Restore previously selected value if it still exists
+                    if (currentValue) {
+                        tacheServiceSelect.val(currentValue);
+                    }
+                }
+                if (materielServiceSelect.length > 0) {
+                    // Store current selected value before updating
+                    const currentValue = materielServiceSelect.val();
+                    //console.log("Combo Service Materiel currentValue:", currentValue);
+                    // Update options
+                    materielServiceSelect.find('option:not(:first)').remove();
+                    services.forEach(function(service) {
+                        materielServiceSelect.append(`<option value="${service.nom}">${service.nom}</option>`);
+                    });
+                }
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des services pour les selects');
+            }
+        });
+    }
+
+    // Fonction pour charger le matériel dans les selects
+    function loadMaterielInSelects(serviceFilter = '') {
+        $.ajax({
+            url: '../backend/api/materiel.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(materiel) {
+                // Mettre à jour le select des tâches
+                const materielSelect = $('#tache-materiel');
+                materielSelect.find('option:not(:first)').remove();
+                
+                materiel.forEach(function(item) {
+                    // Filtrer par service si spécifié
+                    if (!serviceFilter || item.service_affecte === serviceFilter) {
+                        const displayText = `${item.type} ${item.marque} ${item.modele} (${item.num_serie})`;
+                        materielSelect.append(`<option value="${displayText}">${displayText}</option>`);
+                    }
+                });
+            },
+            error: function() {
+                console.error('Erreur lors du chargement du matériel pour les selects');
+            }
+        });
+    }
+
+    // Fonction pour charger les tâches récentes
+    function loadRecentActivities() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=activites',
+            type: 'GET',
+            dataType: 'json',
+            success: function(activites) {
+                const tableBody = $('.recent-activity tbody');
+                tableBody.empty();
+
+                if (activites.length === 0) {
+                    tableBody.append('<tr><td colspan="4" style="text-align:center;">Aucune tâche récente.</td></tr>');
+                    return;
+                }
+
+                activites.forEach(function(activite) {
+                    // Formatage de la date
+                    const date = new Date(activite.date).toLocaleDateString('fr-FR');
+                    
+                    // Création du badge de statut
+                    const statusBadge = `<span class="status-badge status-${activite.status_class}">${activite.statut}</span>`;
+                    
+                    // Ajouter le service si disponible
+                    const serviceInfo = activite.service_concerne ? ` - ${activite.service_concerne}` : '';
+                    
+                    const row = `
+                        <tr>
+                            <td>${date}</td>
+                            <td>${activite.type}</td>
+                            <td>${activite.description}${serviceInfo}</td>
+                            <td>${statusBadge}</td>
+                        </tr>
+                    `;
+                    tableBody.append(row);
+                });
+                //updateTotalCount('.recent-activity', '.recent-activity-total');
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des tâches récentes');
+                $('.recent-activity tbody').html('<tr><td colspan="4" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des tâches.</td></tr>');
+            }
+        });
+    }
+
+    // Fonction pour charger les pannes récurrentes
+    function loadPannesRecurrentes() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=pannes_recurrentes',
+            type: 'GET',
+            dataType: 'json',
+            success: function(pannes) {
+                const container = $('#pannes-recurrentes-list');
+                container.empty();
+
+                if (pannes.length === 0) {
+                    container.html('<div class="no-data">Aucune tâche liée à du matériel pour le moment</div>');
+                    return;
+                }
+
+                pannes.forEach(function(panne) {
+                    const panneItem = `
+                        <div class="panne-item">
+                            <div class="panne-info">
+                                <div class="panne-title">${panne.type} ${panne.marque} ${panne.modele}</div>
+                                <div class="panne-details">${panne.types_pannes}</div>
+                            </div>
+                            <div class="panne-count">${panne.nb_pannes}</div>
+                        </div>
+                    `;
+                    container.append(panneItem);
+                });
+                //updateTotalCount('#pannes-recurrentes-list', '#pannes-recurrentes-total');
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des pannes récurrentes');
+                $('#pannes-recurrentes-list').html('<div class="no-data">Erreur de chargement</div>');
+            }
+        });
+    }
+
+    // Fonction pour charger la vue "cycle de vie du parc" (âge moyen, répartition par
+    // type, matériel à renouveler)
+    function loadParcLifecycle() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=parc_lifecycle',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                // Âge moyen
+                const ageContainer = $('#parc-age-moyen');
+                if (data.age_moyen_annees !== null && data.age_moyen_annees !== undefined) {
+                    ageContainer.removeClass('no-data').html(`<strong>Âge moyen du parc : ${data.age_moyen_annees} an(s)</strong>`);
+                } else {
+                    ageContainer.addClass('no-data').text('Âge moyen indisponible (aucune date d\'achat renseignée)');
+                }
+
+                // Répartition par type
+                const repartitionContainer = $('#parc-repartition-type-list');
+                repartitionContainer.empty();
+                if (!data.repartition_par_type || data.repartition_par_type.length === 0) {
+                    repartitionContainer.html('<div class="no-data">Aucun matériel enregistré</div>');
+                } else {
+                    data.repartition_par_type.forEach(function (item) {
+                        repartitionContainer.append(`
+                            <div class="panne-item">
+                                <div class="panne-info">
+                                    <div class="panne-title">${item.type}</div>
+                                </div>
+                                <div class="panne-count">${item.total}</div>
+                            </div>
+                        `);
+                    });
+                }
+
+                // Matériel à renouveler
+                const renouvelerContainer = $('#parc-a-renouveler-list');
+                renouvelerContainer.empty();
+                if (!data.materiel_a_renouveler || data.materiel_a_renouveler.length === 0) {
+                    renouvelerContainer.html(`<div class="no-data">Aucun matériel de plus de ${data.seuil_renouvellement_annees} ans</div>`);
+                } else {
+                    data.materiel_a_renouveler.forEach(function (item) {
+                        const dateAchat = item.date_achat ? new Date(item.date_achat).toLocaleDateString('fr-FR') : '-';
+                        renouvelerContainer.append(`
+                            <div class="panne-item">
+                                <div class="panne-info">
+                                    <div class="panne-title">${item.type} ${item.marque} ${item.modele}</div>
+                                    <div class="panne-details">${item.num_serie} — acheté le ${dateAchat}</div>
+                                </div>
+                                <div class="panne-count">${item.age_annees} ans</div>
+                            </div>
+                        `);
+                    });
+                }
+            },
+            error: function () {
+                console.error('Erreur lors du chargement du cycle de vie du parc');
+                $('#parc-repartition-type-list, #parc-a-renouveler-list').html('<div class="no-data">Erreur de chargement</div>');
+            }
+        });
+    }
+
+    // Fonction pour charger les services demandeurs
+    function loadServicesDemandeurs() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=services_demandeurs',
+            type: 'GET',
+            dataType: 'json',
+            success: function(services) {
+                const container = $('#services-demandeurs-list');
+                container.empty();
+
+                if (services.length === 0) {
+                    container.html('<div class="no-data">Aucun service demandeur</div>');
+                    return;
+                }
+
+                services.forEach(function(service) {
+                    const serviceItem = `
+                        <div class="service-item">
+                            <div class="service-info">
+                                <div class="service-name">${service.service}</div>
+                                <div class="service-stats">${service.taches_terminees}/${service.nb_taches} terminées</div>
+                            </div>
+                            <div class="service-count">${service.nb_taches}</div>
+                        </div>
+                    `;
+                    container.append(serviceItem);
+                });
+                //updateTotalCount('#services-demandeurs-list', '#services-demandeurs-total');
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des services demandeurs');
+                $('#services-demandeurs-list').html('<div class="no-data">Erreur de chargement</div>');
+            }
+        });
+    }
+
+    // Variable globale pour le graphique
+    let pannesChart = null;
+
+    // Fonction pour charger et afficher le graphique des pannes par mois
+    function loadPannesParMois() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=pannes_par_mois',
+            type: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                const ctx = document.getElementById('pannes-chart').getContext('2d');
+                
+                // Détruire le graphique existant s'il existe
+                if (pannesChart) {
+                    pannesChart.destroy();
+                }
+
+                if (data.length === 0) {
+                    $('#pannes-chart-container').html('<div class="no-data">Aucune tâche déclarée sur les 12 derniers mois</div>');
+                    return;
+                }
+
+                // Préparer les données pour Chart.js
+                const labels = data.map(item => `${item.nom_mois} ${item.annee}`);
+                const values = data.map(item => item.nb_pannes);
+
+                pannesChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Nombre de tâches déclarées',
+                            data: values,
+                            backgroundColor: 'rgba(52, 152, 219, 0.8)',
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    stepSize: 1
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+            },
+            error: function() {
+                console.error('Erreur lors du chargement des données de pannes par mois');
+                $('#pannes-chart-container').html('<div class="no-data">Erreur de chargement du graphique</div>');
+            }
+        });
+    }
+
+    // --- Gestion des clics sur les cartes du tableau de bord ---
+    $('.dashboard-cards').on('click', '.card', function() {
+        const page = $(this).data('page');
+        const filter = $(this).data('filter');
+
+        if (page) {
+            // Simuler un clic sur le menu pour changer de page
+            $(`.sidebar-menu a[href="#${page}"]`).click();
+
+            // Appliquer le filtre après un court délai pour laisser le temps à la page de se charger
+            setTimeout(() => {
+                if (page === 'taches') {
+                    // Les filtres "date" (crees_aujourdhui, terminees_aujourdhui, en_retard,
+                    // echeance_proche) ne correspondent à aucun select visible : on les
+                    // applique directement. Les autres (ex: "En cours") sont des valeurs de
+                    // statut : on passe par le select #filter-statut existant pour que l'UI
+                    // de filtre reste synchronisée avec ce qui est affiché.
+                    const filtresDate = ['crees_aujourdhui', 'terminees_aujourdhui', 'en_retard', 'echeance_proche'];
+                    $('#filter-priorite').val('');
+                    if (filter && filtresDate.includes(filter)) {
+                        $('#filter-statut').val('');
+                        loadTaches(filter);
+                    } else if (filter) {
+                        $('#filter-statut').val(filter).change();
+                    } else {
+                        $('#filter-statut').val('');
+                        loadTaches();
+                    }
+                } else if (page === 'materiel' && filter) {
+                    // Pour le matériel, on peut simuler une recherche
+                    $('#materiel-search').val(filter).keyup();
+                }
+                // Pour les cartes sans filtre (total), ne rien faire de plus
+            }, 100);
+        }
+    });
+
+    // --- Gestion de la Fenêtre Modale (Finale) ---
+    const modal = $('#form-modal');
+    const modalContent = modal.find('.modal-content');
+    const modalBody = modal.find('.modal-body');
+    const modalTitle = modal.find('#modal-title');
+    const modalFooter = modal.find('.modal-footer');
+    // Mémorise le footer d'origine (Annuler/Enregistrer) pour pouvoir le restaurer
+    // après une vue en lecture seule (historique, étiquette QR) qui le remplace.
+    const modalFooterDefaultHtml = modalFooter.html();
+
+    // Ajuste la taille de la modale (sm = compact, md = défaut, lg = formulaire
+    // complexe / contenu volumineux) selon ce qu'elle affiche.
+    function setModalSize(taille) {
+        modalContent.removeClass('modal-content--sm modal-content--lg');
+        if (taille === 'sm' || taille === 'lg') {
+            modalContent.addClass('modal-content--' + taille);
+        }
+    }
+
+    // Restaure le footer standard (Annuler/Enregistrer) de la modale de formulaire.
+    function resetModalFooter() {
+        modalFooter.html(modalFooterDefaultHtml).show();
+    }
+
+    // Définir le HTML pour les formulaires
+    const materielFormHtml = `
+        <form id="materiel-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="type">Type</label>
+                    <select id="type" name="type">
+                        <option value="">Sélectionner un type</option>
+                        <!-- Types chargés dynamiquement depuis t_type_materiel -->
+                        <option value="__new__">+ Ajouter un nouveau type...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="statut">Statut</label>
+                    <select id="statut" name="statut">
+                        <option value="En service">En service</option>
+                        <option value="En panne">En panne</option>
+                        <option value="En attente">En attente</option>
+                        <option value="Retiré">Retiré</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="marque">Marque</label>
+                <input type="text" id="marque" name="marque" placeholder="Ex: Dell">
+            </div>
+            <div class="form-group">
+                <label for="modele">Modèle</label>
+                <input type="text" id="modele" name="modele" placeholder="Ex: Latitude 7420">
+            </div>
+            <div class="form-group">
+                <label for="num_serie">Numéro de série</label>
+                <input type="text" id="num_serie" name="num_serie" placeholder="Code unique de l'équipement">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="date_achat">Date d'achat</label>
+                    <input type="date" id="date_achat" name="date_achat">
+                </div>
+                <div class="form-group">
+                    <label for="service">Service affecté</label>
+                    <select id="service" name="service">
+                        <option value="">Sélectionner un service</option>
+                        <!-- Les services seront chargés dynamiquement -->
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="utilisateur">Utilisateur assigné</label>
+                <input
+                    type="text"
+                    id="utilisateur"
+                    name="utilisateur"
+                    placeholder="Nom de l'utilisateur qui utilise l'équipement"
+                >
+            </div>
+            <div class="form-group" id="date-derniere-affect-group">
+                <label for="date_derniere_affect">Date de dernière affectation</label>
+                <input type="date" id="date_derniere_affect" name="date_derniere_affect">
+                <small style="color: var(--color-text-muted); display:block; margin-top:4px;">
+                    Requise dès qu'un service affecté est sélectionné.
+                </small>
+            </div>
+        </form>`;
+    const servicesFormHtml = `<form id="service-form"><div class="form-group"><label for="service-nom">Nom du Service</label><input type="text" id="service-nom" name="nom" placeholder="Ex: Ressources Humaines"></div><div class="form-group"><label for="service-desc">Description</label><textarea id="service-desc" name="description" rows="4" placeholder="Courte description..."></textarea></div></form>`;
+    const tachesFormHtml = `
+        <form id="tache-form">
+            <div class="form-group">
+                <label for="tache-titre">Titre (Problème/Demande)</label>
+                <input type="text" id="tache-titre" name="tache-titre" placeholder="Ex: Remplacer un disque dur">
+            </div>
+            <div class="form-group">
+                <label for="tache-motif_cause">Motif/Cause</label>
+                <textarea id="tache-motif_cause" name="tache-motif_cause" rows="3" placeholder="Motif/Cause de la tâche..."></textarea>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="tache-priorite">Priorité</label>
+                    <select id="tache-priorite" name="tache-priorite">
+                        <option value="Basse" selected>Basse</option>
+                        <option value="Moyenne">Moyenne</option>
+                        <option value="Haute">Haute</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="tache-statut">Statut</label>
+                    <select id="tache-statut" name="tache-statut">
+                        <option value="À faire" selected>À faire</option>
+                        <option value="En cours">En cours</option>
+                        <option value="Terminé">Terminé</option>
+                        <option value="Annulé">Annulé</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="tache-assigne">Assigné à</label>
+                    <select id="tache-assigne" name="tache-assigne">
+                        <option value="">Sélectionner un technicien</option>
+                        <!-- Les utilisateurs seront chargés dynamiquement -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="tache-date-limite">Date limite</label>
+                    <input type="date" id="tache-date-limite" name="tache-date-limite">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="tache-service">Service concerné</label>
+                    <select id="tache-service" name="tache-service">
+                        <option value="">Sélectionner un service</option>
+                        <!-- Les services seront chargés dynamiquement -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="tache-materiel">Matériel/Application concerné</label>
+                    <select id="tache-materiel" name="tache-materiel">
+                        <option value="">Sélectionner un matériel</option>
+                        <!-- Le matériel sera chargé dynamiquement -->
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="tache-desc">Description (Diagnostic technique)</label>
+                <textarea id="tache-desc" name="tache-desc" rows="3" placeholder="Faire la description/diagnostic technique de la tâche..."></textarea>
+            </div>
+            <div class="form-group">
+                <label for="tache-actions">Actions</label>
+                <textarea id="tache-actions" name="tache-actions" rows="3" placeholder="Description des actions effectuées pour résoudre le problème..."></textarea>
+            </div>
+        </form>`;
+    const utilisateursFormHtml = `
+        <form id="utilisateur-form">
+            <div class="form-group">
+                <label for="nom">Nom complet</label>
+                <input type="text" id="nom" name="nom" placeholder="Ex: Jean Dupont">
+            </div>
+            <div class="form-group">
+                <label for="login">Login</label>
+                <input type="text" id="login" name="login" placeholder="Ex: jean.dupont@parcinfo.local">
+            </div>
+            <div class="form-group">
+                <label for="mot_de_passe">Mot de passe</label>
+                <input type="password" id="mot_de_passe" name="mot_de_passe" placeholder="Entrez votre mot de passe">
+            </div>
+            <div class="form-group">
+                <label for="role">Rôle</label>
+                <select id="role" name="role">
+                    <option>Technicien</option>
+                    <option>Administrateur</option>
+                </select>
+            </div>
+        </form>`;
+
+    function openModal(context, mode = 'add') {
+        let title = '';
+        let formHtml = '';
+
+        // Taille de la modale adaptée à la complexité du formulaire :
+        // sm = peu de champs, (par défaut) = standard, lg = formulaire long.
+        let taille = null;
+
+        if (context === 'materiel') {
+            title = (mode === 'add') ? 'Ajouter un équipement' : 'Modifier l\'équipement';
+            formHtml = materielFormHtml;
+        } else if (context === 'services') {
+            title = (mode === 'add') ? 'Ajouter un service' : 'Modifier le service';
+            formHtml = servicesFormHtml;
+            taille = 'sm';
+        } else if (context === 'taches') {
+            title = (mode === 'add') ? 'Créer une nouvelle tâche' : 'Modifier la tâche';
+            formHtml = tachesFormHtml;
+            taille = 'lg';
+        } else if (context === 'utilisateurs') {
+            title = (mode === 'add') ? 'Ajouter un utilisateur' : 'Modifier l\'utilisateur';
+            formHtml = utilisateursFormHtml;
+            taille = 'sm';
+        }
+
+        modalTitle.text(title);
+        modalBody.html(formHtml);
+        modalBody.find('form')[0].reset();
+        resetModalFooter();
+        setModalSize(taille);
+        modal.css('display', 'flex');
+
+        // Recharger les selects selon le contexte
+        setTimeout(function() {
+            if (context === 'materiel') {
+                loadServicesInSelects();
+                loadUsersInSelects();
+                loadTypeMaterielInSelects();
+
+                // Permet de créer un nouveau type de matériel à la volée depuis le select
+                $('#type').off('change').on('change', function() {
+                    if ($(this).val() === '__new__') {
+                        const nouveauType = prompt('Nom du nouveau type de matériel :');
+                        if (nouveauType && nouveauType.trim()) {
+                            const valeur = nouveauType.trim();
+                            $.ajax({
+                                url: '../backend/api/type_materiel.php?action=create',
+                                type: 'POST',
+                                data: { type: valeur },
+                                dataType: 'json',
+                                success: function(response) {
+                                    if (response.success) {
+                                        loadTypeMaterielInSelects();
+                                        setTimeout(function() { $('#type').val(valeur); }, 150);
+                                    } else {
+                                        alert('Erreur: ' + (response.error || 'Impossible de créer ce type.'));
+                                        $('#type').val('');
+                                    }
+                                },
+                                error: function() {
+                                    alert('Erreur de communication avec le serveur.');
+                                    $('#type').val('');
+                                }
+                            });
+                        } else {
+                            $('#type').val('');
+                        }
+                    }
+                });
+
+                // Demande confirmation à chaque changement de service affecté, et impose
+                // une date d'affectation avant de valider ce changement. La valeur de
+                // référence (prevValue) est initialisée ici pour le mode "ajout" ; en mode
+                // "édition", elle est réécrite après le pré-remplissage du formulaire (voir
+                // le gestionnaire "Modifier" du matériel) pour ne pas déclencher la
+                // confirmation sur le simple affichage des données existantes.
+                $('#service').data('prevValue', $('#service').val() || '');
+                $('#service').off('change').on('change', function() {
+                    const nouveauService = $(this).val();
+                    const ancienService = $(this).data('prevValue') || '';
+
+                    if (nouveauService === ancienService) {
+                        return; // Pas un vrai changement (ex: pré-remplissage)
+                    }
+
+                    const message = nouveauService
+                        ? `Confirmer l'affectation de ce matériel au service "${nouveauService}" ?`
+                        : 'Confirmer le retrait de l\'affectation de service pour ce matériel ?';
+
+                    if (confirm(message)) {
+                        $(this).data('prevValue', nouveauService);
+                        if (nouveauService && !$('#date_derniere_affect').val()) {
+                            // Pré-remplie à aujourd'hui, modifiable si la date réelle diffère.
+                            $('#date_derniere_affect').val(new Date().toISOString().slice(0, 10));
+                        }
+                    } else {
+                        // Annulé : on revient à la valeur précédente
+                        $(this).val(ancienService);
+                    }
+                });
+            } else if (context === 'taches') {
+                loadUsersInSelects();
+                loadServicesInSelects();
+                loadMaterielInSelects();
+                
+                // Ajouter l'événement pour filtrer le matériel par service
+                $('#tache-service').off('change').on('change', function() {
+                    const selectedService = $(this).val();
+                    loadMaterielInSelects(selectedService);
+                });
+            }
+        }, 100);
+    }
+
+    function closeModal() {
+        modal.css('display', 'none');
+    }
+
+    // Logique d'ouverture de la modale (intelligente)
+    $('#fab').on('click', function (e) {
+        e.preventDefault();
+        let context = $('.page-content.active').attr('id').replace('-page', '');
+        // Le tableau de bord n'a pas de formulaire propre : le bouton "+" y ouvre
+        // la création de tâche (action la plus courante depuis cette page).
+        if (context === 'dashboard') {
+            context = 'taches';
+        }
+        openModal(context, 'add');
+    });
+
+    // --- Modale des filtres avancés des tâches (priorité, matériel, périodes) ---
+    const filtresTachesModal = $('#filtres-taches-modal');
+
+    $('#fab-filtres-taches').on('click', function (e) {
+        e.preventDefault();
+        filtresTachesModal.css('display', 'flex');
+    });
+
+    $('#close-filtres-taches, #btn-appliquer-filtres-taches').on('click', function () {
+        filtresTachesModal.css('display', 'none');
+    });
+
+    // Gestionnaire de clic "Étiquette d'inventaire (QR code)" pour le matériel
+    $('#materiel-page').on('click', '.btn-qrcode', function () {
+        const id = $(this).data('id');
+        const label = $(this).data('label');
+        const serie = $(this).data('serie');
+        const service = $(this).data('service');
+        showMaterielQRCode(id, label, serie, service);
+    });
+
+    // Gestionnaire de clic "Historique d'affectation" pour le matériel
+    $('#materiel-page').on('click', '.btn-historique', function () {
+        const id = $(this).data('id');
+        const label = $(this).data('label');
+        showMaterielHistorique(id, label);
+    });
+
+    // Gestionnaires de clics "Modifier" pour chaque page
+    $('#materiel-page').on('click', '.btn-edit', function () {
+        const id = $(this).data('id');
+        // Récupérer les données du matériel à modifier
+        $.ajax({
+            url: '../backend/api/materiel.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                // Trouver le matériel avec l'ID correspondant
+                const materiel = data.find(item => item.id == id);
+                if (materiel) {
+                    // Ouvrir la modale
+                    openModal('materiel', 'edit');
+                    
+                    // Attendre que les selects soient chargés avant de remplir les valeurs
+                    setTimeout(function() {
+                        // Remplir le formulaire avec les données existantes
+                        $('#materiel-form').append('<input type="hidden" name="id" value="' + materiel.id + '">');
+                        $('#type').val(materiel.type);
+                        $('#marque').val(materiel.marque);
+                        $('#modele').val(materiel.modele);
+                        $('#num_serie').val(materiel.num_serie);
+                        $('#date_achat').val(materiel.date_achat);
+                        $('#statut').val(materiel.statut);
+                        // On mémorise le service actuel comme référence : la confirmation
+                        // d'affectation ne doit se déclencher que sur un vrai changement,
+                        // pas sur ce pré-remplissage.
+                        $('#service').val(materiel.service_affecte).data('prevValue', materiel.service_affecte || '');
+                        $('#utilisateur').val(materiel.utilisateur_assigne);
+                        $('#date_derniere_affect').val(materiel.date_derniere_affect);
+                    }, 200);
+
+                    
+
+                } else {
+                    alert('Erreur: Impossible de trouver les informations du matériel.');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                alert('Erreur: Impossible de récupérer les informations du matériel.');
+            }
+        });
+    });
+    
+    // Gestionnaire de clics "Supprimer" pour le matériel
+    $('#materiel-page').on('click', '.btn-delete', function () {
+        const id = $(this).data('id');
+        const row = $(this).closest('tr');
+        const typeAndModel = row.find('td:nth-child(1)').text() + ' ' + row.find('td:nth-child(2)').text();
+        
+        // Demander confirmation avant de supprimer
+        if (confirm('Êtes-vous sûr de vouloir supprimer ce matériel : ' + typeAndModel + ' ?')) {
+            // Envoyer la requête de suppression
+            $.ajax({
+                url: '../backend/api/materiel.php?action=delete',
+                type: 'POST',
+                data: { id: id },
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // Supprimer la ligne du tableau
+                        row.fadeOut(300, function() {
+                            $(this).remove();
+                        });
+                        // Mettre à jour les statistiques
+                        updateDashboardStats();
+                        loadRecentActivities();
+                        // Recharger les selects
+                        loadMaterielInSelects();
+                        // Afficher un message de succès
+                        alert('Matériel supprimé avec succès.');
+                    } else {
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX Error:', status, error);
+                    try {
+                        var response = JSON.parse(xhr.responseText);
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    } catch(e) {
+                        alert('Erreur: Une erreur est survenue lors de la communication avec le serveur.');
+                    }
+                }
+            });
+        }
+    });
+    // Gestionnaire de clics "Modifier" pour les services
+    $('#services-page').on('click', '.btn-edit', function () {
+        const id = $(this).data('id');
+        // Récupérer les données du service à modifier
+        $.ajax({
+            url: '../backend/api/services.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                // Trouver le service avec l'ID correspondant
+                const service = data.find(item => item.id == id);
+                if (service) {
+                    // Ouvrir la modale
+                    openModal('services', 'edit');
+                    
+                    // Remplir le formulaire avec les données existantes
+                    $('#service-form').append('<input type="hidden" name="id" value="' + service.id + '">');
+                    $('#service-nom').val(service.nom);
+                    $('#service-desc').val(service.description);
+                } else {
+                    alert('Erreur: Impossible de trouver les informations du service.');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                alert('Erreur: Impossible de récupérer les informations du service.');
+            }
+        });
+    });
+    
+    // Gestionnaire de clics "Supprimer" pour les services
+    $('#services-page').on('click', '.btn-delete', function () {
+        const id = $(this).data('id');
+        const row = $(this).closest('tr');
+        const serviceName = row.find('td:first-child').text();
+        
+        // Demander confirmation avant de supprimer
+        if (confirm('Êtes-vous sûr de vouloir supprimer le service : ' + serviceName + ' ?')) {
+            // Envoyer la requête de suppression
+            $.ajax({
+                url: '../backend/api/services.php?action=delete',
+                type: 'POST',
+                data: { id: id },
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // Supprimer la ligne du tableau
+                        row.fadeOut(300, function() {
+                            $(this).remove();
+                        });
+                        // Mettre à jour les statistiques
+                        updateDashboardStats();
+                        loadRecentActivities();
+                        // Recharger les selects
+                        loadServicesInSelects();
+                        // Afficher un message de succès
+                        alert('Service supprimé avec succès.');
+                    } else {
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX Error:', status, error);
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    } catch (e) {
+                        alert('Erreur: Une erreur est survenue lors de la communication avec le serveur.');
+                    }
+                }
+            });
+        }
+    });
+    // Gestionnaire de clics "Modifier" pour les tâches
+    $('#taches-page').on('click', '.btn-edit', function () {
+
+        const userRole = localStorage.getItem('user_role');
+        const userId = localStorage.getItem('user_id');
+        const userName = localStorage.getItem('user_name');
+
+        const id = $(this).data('id');
+        // Récupérer les données de la tâche à modifier
+        $.ajax({
+            url: '../backend/api/taches.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                // Trouver la tâche avec l'ID correspondant
+                const tache = data.find(item => item.id == id);
+                if (tache) {
+                    // Ouvrir la modale
+                    openModal('taches', 'edit');
+                    
+                    // Attendre que les selects soient chargés avant de remplir les valeurs
+                    setTimeout(function() {
+                        // Remplir le formulaire avec les données existantes
+                        $('#tache-form').append('<input type="hidden" name="id" value="' + tache.id + '">');
+                        $('#tache-titre').val(tache.titre);
+                        $('#tache-motif_cause').val(tache.motif_cause);
+                        $('#tache-desc').val(tache.description);
+                        $('#tache-priorite').val(tache.priorite);
+                        $('#tache-statut').val(tache.statut);
+                        $('#tache-assigne').val(tache.assigne_a);
+                        $('#tache-service').val(tache.service_concerne);
+                        $('#tache-materiel').val(tache.materiel_concerne);
+                        $('#tache-date-limite').val(tache.date_limite);
+                        $('#tache-actions').val(tache.actions);
+                        
+                        // Si un service est sélectionné, filtrer le matériel
+                        if (tache.service_concerne) {
+                            loadMaterielInSelects(tache.service_concerne);
+                            // Attendre un peu plus pour que le matériel soit filtré
+                            setTimeout(function() {
+                                $('#tache-materiel').val(tache.materiel_concerne);
+                            }, 100);
+                        }
+
+                        // Cacher/désactiver le bouton enregistrer si le user n'est pas admin et la tâche ne lui est pas assignée
+                        if (userRole !== 'Administrateur' && userName !== tache.assigne_a) {
+                            $('#modal-save').prop('disabled', true).css('opacity', '0.5').css('cursor', 'not-allowed');
+                        }
+
+                        
+                        console.log("Taches:", JSON.stringify(tache, null, 2));
+                    }, 200);
+                } else {
+                    alert('Erreur: Impossible de trouver les informations de la tâche.');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                alert('Erreur: Impossible de récupérer les informations de la tâche.');
+            }
+        });
+    });
+    
+    // Gestionnaire de clics "Supprimer" pour les tâches
+    $('#taches-page').on('click', '.btn-delete', function () {
+        const id = $(this).data('id');
+        const row = $(this).closest('tr');
+        const taskTitle = row.find('td:nth-child(2)').text();
+        
+        // Demander confirmation avant de supprimer
+        if (confirm('Êtes-vous sûr de vouloir supprimer la tâche : ' + taskTitle + ' ?')) {
+            // Envoyer la requête de suppression
+            $.ajax({
+                url: '../backend/api/taches.php?action=delete',
+                type: 'POST',
+                data: { id: id },
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // Supprimer la ligne du tableau
+                        row.fadeOut(300, function() {
+                            $(this).remove();
+                        });
+                        // Mettre à jour les statistiques
+                        updateDashboardStats();
+                        loadRecentActivities();
+                        // Recharger les selects
+                        loadMaterielInSelects();
+                        // Afficher un message de succès
+                        alert('Tâche supprimée avec succès.');
+                    } else {
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX Error:', status, error);
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    } catch (e) {
+                        alert('Erreur: Une erreur est survenue lors de la communication avec le serveur.');
+                    }
+                }
+            });
+        }
+    });
+    
+    // Gestionnaire de clics "Modifier" pour les utilisateurs
+    $('#utilisateurs-page').on('click', '.btn-edit', function () {
+        const id = $(this).data('id');
+        // Récupérer les données de l'utilisateur à modifier
+        $.ajax({
+            url: '../backend/api/utilisateurs.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                // Trouver l'utilisateur avec l'ID correspondant
+                const utilisateur = data.find(item => item.id == id);
+                if (utilisateur) {
+                    // Ouvrir la modale
+                    openModal('utilisateurs', 'edit');
+                    
+                    // Remplir le formulaire avec les données existantes
+                    $('#utilisateur-form').append('<input type="hidden" name="id" value="' + utilisateur.id + '">');
+                    $('#nom').val(utilisateur.nom);
+                    $('#login').val(utilisateur.login);
+                    $('#role').val(utilisateur.role);
+                    $('#mot_de_passe').val(''); // Ne pas afficher le mot de passe
+
+                    //Desactiver le champs login
+                    if (localStorage.getItem('user_role') != 'Superuser') {
+                        $('#login').prop('disabled', true);
+                    }
+                } else {
+                    alert('Erreur: Impossible de trouver les informations de l\'utilisateur.');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                alert('Erreur: Impossible de récupérer les informations de l\'utilisateur.');
+            }
+        });
+    });
+    
+    // Gestionnaire de clics "Supprimer" pour les utilisateurs
+    $('#utilisateurs-page').on('click', '.btn-delete', function () {
+        const id = $(this).data('id');
+        const row = $(this).closest('tr');
+        const userName = row.find('td:first-child').text();
+        
+        // Demander confirmation avant de supprimer
+        if (confirm('Êtes-vous sûr de vouloir supprimer l\'utilisateur : ' + userName + ' ?')) {
+            // Envoyer la requête de suppression
+            $.ajax({
+                url: '../backend/api/utilisateurs.php?action=delete',
+                type: 'POST',
+                data: { id: id },
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // Supprimer la ligne du tableau
+                        row.fadeOut(300, function() {
+                            $(this).remove();
+                        });
+                        // Mettre à jour les statistiques
+                        updateDashboardStats();
+                        loadRecentActivities();
+                        // Recharger les selects
+                        loadUsersInSelects();
+                        // Afficher un message de succès
+                        alert('Utilisateur supprimé avec succès.');
+                    } else {
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AJAX Error:', status, error);
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
+                    } catch (e) {
+                        alert('Erreur: Une erreur est survenue lors de la communication avec le serveur.');
+                    }
+                }
+            });
+        }
+    });
+
+    // Fermeture de la modale
+    // Délégué (et non lié directement) car le footer de la modale peut être
+    // remplacé dynamiquement (vues Historique / QR code) avec un nouveau bouton.
+    $(document).on('click', '.close-button, #modal-cancel', closeModal);
+    // Suppression de la fermeture au clic à l'extérieur pour éviter les fermetures accidentelles
+
+    // --- Recherche en direct (Finale) ---
+    function liveSearch(inputId, tableId) {
+        $('#' + inputId).on('keyup', function () {
+            const searchTerm = $(this).val().toLowerCase();
+            $('#' + tableId + ' tbody tr').each(function () {
+                const rowText = $(this).text().toLowerCase();
+                $(this).toggle(rowText.indexOf(searchTerm) > -1);
+            });
+            updateTotalCount('#' + tableId, '#' + tableId + '-total');
+        });
+    }
+
+    liveSearch('materiel-search', 'materiel-table');
+    liveSearch('services-search', 'services-table');
+    // taches-search est géré par filterTaches() (recherche titre + motif, combinée
+    // aux autres filtres) — le brancher aussi ici causerait un conflit d'affichage.
+    liveSearch('utilisateurs-search', 'utilisateurs-table');
+
+    // --- Filtrage avancé pour les tâches ---
+    // Colonnes du tableau : 1=Statut 2=Titre 3=Motif/Cause 4=Service 5=Matériel
+    // 6=Assigné à 7=Date limite 8=Priorité 9=Actions
+    function filterTaches() {
+        const searchTerm = $('#taches-search').val().toLowerCase();
+        const prioriteFilter = $('#filter-priorite').val();
+        const statutFilter = $('#filter-statut').val();
+        const assigneFilter = $('#filter-taches-assigne').val();
+        const materielFilter = $('#filter-taches-materiel').val();
+        const serviceFilter = $('#filter-taches-service').val();
+        const dateAjoutDebut = $('#filter-date-ajout-debut').val();
+        const dateAjoutFin = $('#filter-date-ajout-fin').val();
+        const dateLimiteDebut = $('#filter-date-limite-debut').val();
+        const dateLimiteFin = $('#filter-date-limite-fin').val();
+
+        $('#taches-table tbody tr').each(function () {
+            const row = $(this);
+            const titre = row.find('td:nth-child(2)').text().toLowerCase();
+            const motif = row.find('td:nth-child(3)').text().toLowerCase();
+            const service = row.find('td:nth-child(4)').text().trim();
+            const materiel = row.find('td:nth-child(5)').text().trim();
+            const assigne = row.find('td:nth-child(6)').text().trim();
+            const priorite = row.find('td:nth-child(8) .priority-badge').text().trim();
+            const statut = row.find('td:nth-child(1) .status-badge').text().trim();
+            const dateAjout = row.data('date-ajout') || '';
+            const dateLimite = row.data('date-limite') || '';
+
+            // La recherche libre porte sur le titre ET le motif/cause
+            const matchesSearch = !searchTerm || titre.indexOf(searchTerm) > -1 || motif.indexOf(searchTerm) > -1;
+            const matchesPriorite = !prioriteFilter || priorite === prioriteFilter;
+            const matchesStatut = !statutFilter || statut === statutFilter;
+            const matchesAssigne = !assigneFilter || assigne === assigneFilter;
+            const matchesMateriel = !materielFilter || materiel === materielFilter;
+            const matchesService = !serviceFilter || service === serviceFilter;
+            const matchesDateAjout = (!dateAjoutDebut || (dateAjout && dateAjout >= dateAjoutDebut))
+                && (!dateAjoutFin || (dateAjout && dateAjout <= dateAjoutFin));
+            const matchesDateLimite = (!dateLimiteDebut || (dateLimite && dateLimite >= dateLimiteDebut))
+                && (!dateLimiteFin || (dateLimite && dateLimite <= dateLimiteFin));
+
+            row.toggle(matchesSearch && matchesPriorite && matchesStatut && matchesAssigne
+                && matchesMateriel && matchesService && matchesDateAjout && matchesDateLimite);
+        });
+
+        // Indique visuellement (hors modale) qu'un filtre avancé est actif : priorité,
+        // matériel ou une période, puisque ces contrôles sont désormais cachés dans la modale.
+        let nbFiltresAvances = 0;
+        if (prioriteFilter) nbFiltresAvances++;
+        if (materielFilter) nbFiltresAvances++;
+        if (dateAjoutDebut || dateAjoutFin) nbFiltresAvances++;
+        if (dateLimiteDebut || dateLimiteFin) nbFiltresAvances++;
+
+        const badge = $('#filtres-avances-badge');
+        if (nbFiltresAvances > 0) {
+            badge.show().html(`<i class="fas fa-filter"></i> ${nbFiltresAvances} filtre(s) avancé(s) actif(s)`);
+        } else {
+            badge.hide().empty();
+        }
+
+        //updateTotalCount('#taches-table', '#taches-total');
+    }
+
+    // Appliquer les filtres en temps réel
+    $('#taches-search, #filter-priorite, #filter-statut, #filter-taches-assigne, ' +
+      '#filter-taches-materiel, #filter-taches-service, #filter-date-ajout-debut, ' +
+      '#filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin')
+        .on('change keyup', filterTaches);
+
+    // Réinitialiser tous les filtres de la liste des tâches
+    $('#btn-reset-filtres-taches').on('click', function () {
+        $('#taches-search').val('');
+        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service').val('');
+        $('#filter-date-ajout-debut, #filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin').val('');
+        filterTaches();
+    });
+
+    $('#filter-statut').on('change', function() {
+        const statut = $(this).val();
+        xstatut = statut;
+        loadTaches(null, statut);
+    });
+    
+
+
+    // On charge le matériel, les services, les utilisateurs et les tâches au démarrage de l'application
+    loadMateriel();
+    loadServices();
+    loadUtilisateurs();
+    loadTaches();
+    updateDashboardStats();
+    loadRecentActivities(); // Charge les tâches récentes
+    loadPannesRecurrentes();
+    loadParcLifecycle();
+    loadServicesDemandeurs();
+    loadPannesParMois();
+    
+    // Charger les données pour les selects des formulaires
+    loadUsersInSelects();
+    loadServicesInSelects();
+    loadMaterielInSelects();
+    loadTypeMaterielInSelects();
+
+    // Rafraîchir automatiquement les données du tableau de bord toutes les 30 secondes
+    setInterval(function() {
+        if ($('#dashboard-page').hasClass('active')) {
+            updateDashboardStats();
+            loadRecentActivities(); // Charge les tâches récentes
+            loadPannesRecurrentes();
+            loadServicesDemandeurs();
+            loadPannesParMois();
+        }
+    }, 30000); // 30 secondes
+
+    // Rafraîchir les notifications de tâches assignées (badge + pop) toutes les 30
+    // secondes, quelle que soit la page active.
+    setInterval(function () {
+        loadTaskNotifications();
+    }, 30000);
+
+    // --- GESTION DE LA SOUMISSION DES FORMULAIRES ---
+    // On utilise des gestionnaires d'événements délégués attachés à la modale
+    $('#form-modal').on('submit', '#materiel-form', function(e) {
+        e.preventDefault(); // Empêche le rechargement de la page
+
+        // Un service affecté impose une date d'affectation (filet de sécurité : la
+        // confirmation au changement de service la pré-remplit déjà normalement).
+        if ($('#service').val() && !$('#date_derniere_affect').val()) {
+            alert('Merci de renseigner la date de dernière affectation : un service est affecté à ce matériel.');
+            $('#date_derniere_affect').focus();
+            return;
+        }
+
+        // On récupère les données du formulaire
+        const formData = {
+            type: $('#type').val(),
+            marque: $('#marque').val(),
+            modele: $('#modele').val(),
+            num_serie: $('#num_serie').val(),
+            date_achat: $('#date_achat').val(),
+            statut: $('#statut').val(),
+            service: $('#service').val(),
+            utilisateur: $('#utilisateur').val(),
+            date_derniere_affect: $('#date_derniere_affect').val(),
+            created_by_login: localStorage.getItem('user_login') || '',
+            updated_by_login: localStorage.getItem('user_login') || ''
+        };
+
+        // Déterminer si c'est une création ou une mise à jour
+        const hasId = $(this).find('input[name="id"]').length > 0;
+        const action = hasId ? 'update' : 'create';
+
+        if (hasId) {
+            formData.id = $(this).find('input[name="id"]').val();
+        }
+
+        $.ajax({
+            url: '../backend/api/materiel.php?action=' + action,
+            type: 'POST',
+            data: formData,
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Si succès, on ferme la modale et on rafraîchit la table
+                    closeModal(); // Utilisation de la fonction closeModal existante
+                    loadMateriel();
+                    updateDashboardStats();
+                    loadRecentActivities();
+                    // Recharger les selects
+                    loadMaterielInSelects();
+                    // Supprimer le champ id caché s'il existe
+                    $('#materiel-form input[name="id"]').remove();
+                    // Réinitialiser le formulaire
+                    $('#materiel-form')[0].reset();
+                } else {
+                    // Sinon, on affiche l'erreur
+                    alert('Erreur: ' + (response.error || 'Une erreur inconnue est survenue'));
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                console.error('Response:', xhr.responseText);
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    alert('Erreur: ' + (response.error || 'Une erreur de communication avec le serveur est survenue.'));
+                } catch(e) {
+                    alert('Une erreur de communication avec le serveur est survenue. Veuillez vérifier la console pour plus de détails.');
+                }
+            }
+        });
+    });
+    
+    // --- GESTION DE LA SOUMISSION DU FORMULAIRE SERVICE ---
+    // On utilise un gestionnaire d'événement délégué attaché à la modale
+    $('#form-modal').on('submit', '#service-form', function(e) {
+        e.preventDefault(); // Empêche le rechargement de la page
+
+        // On récupère les données du formulaire
+        const formData = {
+            nom: $('#service-nom').val(),
+            description: $('#service-desc').val(),
+            created_by_login: localStorage.getItem('user_login') || '',
+            updated_by_login: localStorage.getItem('user_login') || '',
+        };
+        
+        // Déterminer si c'est une création ou une mise à jour
+        const hasId = $(this).find('input[name="id"]').length > 0;
+        const action = hasId ? 'update' : 'create';
+        
+        if (hasId) {
+            formData.id = $(this).find('input[name="id"]').val();
+        }
+
+        $.ajax({
+            url: '../backend/api/services.php?action=' + action,
+            type: 'POST',
+            data: formData,
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Si succès, on ferme la modale et on rafraîchit la table
+                    closeModal();
+                    loadServices();
+                    updateDashboardStats();
+                    loadRecentActivities();
+                    // Recharger les selects
+                    loadServicesInSelects();
+                    // Supprimer le champ id caché s'il existe
+                    $('#service-form input[name="id"]').remove();
+                    // Réinitialiser le formulaire
+                    $('#service-form')[0].reset();
+                } else {
+                    // Sinon, on affiche l'erreur
+                    alert('Erreur: ' + (response.error || 'Une erreur inconnue est survenue'));
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                console.error('Response:', xhr.responseText);
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    alert('Erreur: ' + (response.error || 'Une erreur de communication avec le serveur est survenue.'));
+                } catch(e) {
+                    alert('Une erreur de communication avec le serveur est survenue. Veuillez vérifier la console pour plus de détails.');
+                }
+            }
+        });
+    });
+    
+    // --- GESTION DE LA SOUMISSION DU FORMULAIRE UTILISATEUR ---
+    // On utilise un gestionnaire d'événement délégué attaché à la modale
+    $('#form-modal').on('submit', '#utilisateur-form', function(e) {
+        e.preventDefault(); // Empêche le rechargement de la page
+
+        // On récupère les données du formulaire
+        const formData = {
+            nom: $('#nom').val(),
+            login: $('#login').val(),
+            role: $('#role').val(),
+            mot_de_passe: $('#mot_de_passe').val(),
+            created_by_login: localStorage.getItem('user_login') || '',
+            updated_by_login: localStorage.getItem('user_login') || '',
+        };
+        
+        // Déterminer si c'est une création ou une mise à jour
+        const hasId = $(this).find('input[name="id"]').length > 0;
+        const action = hasId ? 'update' : 'create';
+        
+        if (hasId) {
+            formData.id = $(this).find('input[name="id"]').val();
+        }
+
+        $.ajax({
+            url: '../backend/api/utilisateurs.php?action=' + action,
+            type: 'POST',
+            data: formData,
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Si succès, on ferme la modale et on rafraîchit la table
+                    closeModal();
+                    loadUtilisateurs();
+                    updateDashboardStats();
+                    loadRecentActivities();
+                    // Recharger les selects
+                    loadUsersInSelects();
+                    // Supprimer le champ id caché s'il existe
+                    $('#utilisateur-form input[name="id"]').remove();
+                    // Réinitialiser le formulaire
+                    $('#utilisateur-form')[0].reset();
+                } else {
+                    // Sinon, on affiche l'erreur
+                    alert('Erreur: ' + (response.error || 'Une erreur inconnue est survenue'));
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                console.error('Response:', xhr.responseText);
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    alert('Erreur: ' + (response.error || 'Une erreur de communication avec le serveur est survenue.'));
+                } catch(e) {
+                    alert('Une erreur de communication avec le serveur est survenue. Veuillez vérifier la console pour plus de détails.');
+                }
+            }
+        });
+    });
+
+    // --- GESTION DE LA SOUMISSION DU FORMULAIRE TÂCHES ---
+    // On utilise un gestionnaire d'événement délégué attaché à la modale
+    $('#form-modal').on('submit', '#tache-form', function(e) {
+        e.preventDefault(); // Empêche le rechargement de la page
+
+        // On récupère les données du formulaire
+                    const formData = {
+                titre: $('#tache-titre').val(),
+                motif_cause: $('#tache-motif_cause').val(),
+                description: $('#tache-desc').val(),
+                priorite: $('#tache-priorite').val(),
+                statut: $('#tache-statut').val(),
+                assigne_a: $('#tache-assigne').val(),
+                service_concerne: $('#tache-service').val(),
+                materiel_concerne: $('#tache-materiel').val(),
+                date_limite: $('#tache-date-limite').val(),
+                actions: $('#tache-actions').val(),
+                created_by_login: localStorage.getItem('user_login') || '',
+                updated_by_login: localStorage.getItem('user_login') || ''
+            };
+        
+        // Déterminer si c'est une création ou une mise à jour
+        const hasId = $(this).find('input[name="id"]').length > 0;
+        const action = hasId ? 'update' : 'create';
+        
+        if (hasId) {
+            formData.id = $(this).find('input[name="id"]').val();
+        }
+
+        $.ajax({
+            url: '../backend/api/taches.php?action=' + action,
+            type: 'POST',
+            data: formData,
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Si succès, on ferme la modale et on rafraîchit la table
+                    closeModal();
+                    loadTaches();
+                    updateDashboardStats();
+                    loadRecentActivities();
+                    // Recharger les selects
+                    loadMaterielInSelects();
+                    // Supprimer le champ id caché s'il existe
+                    $('#tache-form input[name="id"]').remove();
+                    // Réinitialiser le formulaire
+                    $('#tache-form')[0].reset();
+                } else {
+                    // Sinon, on affiche l'erreur
+                    alert('Erreur: ' + (response.error || 'Une erreur inconnue est survenue'));
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                console.error('Response:', xhr.responseText);
+                try {
+                    var response = JSON.parse(xhr.responseText);
+                    alert('Erreur: ' + (response.error || 'Une erreur de communication avec le serveur est survenue.'));
+                } catch(e) {
+                    alert('Une erreur de communication avec le serveur est survenue. Veuillez vérifier la console pour plus de détails.');
+                }
+            }
+        });
+    });
+
+    // Assurez-vous que le bouton "Enregistrer" déclenche la soumission du formulaire actif
+    $('#form-modal').on('click', '#modal-save', function() {
+        // Déterminer quel formulaire est actuellement affiché dans la modale
+        if ($('#materiel-form').length > 0) {
+            $('#materiel-form').trigger('submit');
+        } else if ($('#service-form').length > 0) {
+            $('#service-form').trigger('submit');
+        } else if ($('#tache-form').length > 0) {
+            $('#tache-form').trigger('submit');
+        } else if ($('#utilisateur-form').length > 0) {
+            $('#utilisateur-form').trigger('submit');
+        }
+    });
+
+    // Fonction pour récupérer les données visibles du tableau sous forme de JSON
+    function getVisibleTableDataAsJson(tableId) {
+        const data = [];
+        const headers = [];
+        // Obtenir les en-têtes, en ignorant la colonne "Actions"
+        $(`${tableId} thead th`).each(function() {
+            const headerText = $(this).text().trim();
+            if (headerText !== 'Actions') {
+                headers.push(headerText);
+            }
+        });
+
+        // Obtenir les lignes visibles
+        $(`${tableId} tbody tr:visible`).each(function() {
+            const rowObject = {};
+            $(this).find('td').each(function(index) {
+                // Mapper le td à l'en-tête, en ignorant la colonne "Actions"
+                if (index < headers.length) {
+                    const headerKey = headers[index];
+                    rowObject[headerKey] = $(this).text().trim();
+                }
+            });
+            data.push(rowObject);
+        });
+        return data;
+    }
+
+    // Fonction pour exporter les données du tableau vers un fichier Excel (.xlsx)
+    function exportToExcel() {
+        const data = getVisibleTableDataAsJson('#materiel-table');
+        if (data.length === 0) {
+            alert('Aucune donnée à exporter.');
+            return;
+        }
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Matériel');
+        XLSX.writeFile(workbook, 'export_materiel.xlsx');
+    }
+
+    // Fonction pour exporter les données du tableau vers un fichier Word (.docx)
+    function exportToWord() {
+        const data = getVisibleTableDataAsJson('#materiel-table');
+        if (data.length === 0) {
+            alert('Aucune donnée à exporter.');
+            return;
+        }
+
+        const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType } = docx;
+
+        const tableRows = [
+            new TableRow({
+                children: Object.keys(data[0]).map(header => new TableCell({ 
+                    children: [new Paragraph({ text: header, bold: true })], 
+                    shading: { fill: "D3D3D3" } 
+                })),
+            }),
+            ...data.map(row => new TableRow({
+                children: Object.values(row).map(cell => new TableCell({ children: [new Paragraph(cell)] })),
+            }))
+        ];
+
+        const table = new Table({
+            rows: tableRows,
+            width: { size: 100, type: WidthType.PERCENTAGE },
+        });
+
+        const doc = new Document({
+            sections: [{
+                children: [
+                    new Paragraph({ text: 'Liste du Matériel', heading: 'Heading1' }),
+                    table
+                ],
+            }],
+        });
+
+        Packer.toBlob(doc).then(blob => {
+            saveAs(blob, 'export_materiel.docx');
+        });
+    }
+
+    // Attacher les événements d'exportation
+    $('#export-excel-btn').on('click', exportToExcel);
+    $('#export-word-btn').on('click', exportToWord);
+});
+
+// Fonction pour mettre à jour le nombre total d'éléments visibles dans un tableau
+function updateTotalCount(tableId, totalId, titrePage = '') {
+    const total = $(`${tableId} tbody tr:visible`).length;
+    $(`${totalId}`).text(`${titrePage}` + `(${total})`);
+}

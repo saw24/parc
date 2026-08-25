@@ -1,0 +1,314 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion de Parc Informatique</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <style>
+        :root {
+            --sidebar-width: 250px;
+            --dark-bg: #2c3e50;
+            --light-text: #ecf0f1;
+            --accent-color: #3498db;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            background-color: #f4f6f7;
+        }
+
+        #sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--dark-bg);
+            color: var(--light-text);
+            height: 100vh;
+            position: fixed;
+            left: -var(--sidebar-width);
+            top: 0;
+            transition: 0.3s ease;
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        #sidebar.open {
+            left: 0;
+        }
+
+        #sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            z-index: 999;
+        }
+
+        #hamburger {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            z-index: 1100;
+            cursor: pointer;
+            font-size: 24px;
+        }
+
+        #content {
+            margin-left: 0;
+            width: 100%;
+            padding: 20px;
+            transition: 0.3s ease;
+        }
+
+        #content.sidebar-open {
+            margin-left: var(--sidebar-width);
+            width: calc(100% - var(--sidebar-width));
+        }
+
+        .sidebar-menu {
+            list-style-type: none;
+            padding: 20px 0;
+        }
+
+        .sidebar-menu li {
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .sidebar-menu li:hover {
+            background-color: rgba(255,255,255,0.1);
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .floating-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--accent-color);
+            color: white;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            cursor: pointer;
+            z-index: 1000;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8em;
+        }
+
+        .status-active { background-color: #2ecc71; color: white; }
+        .status-failure { background-color: #e74c3c; color: white; }
+        .status-pending { background-color: #f39c12; color: white; }
+
+        @media (max-width: 768px) {
+            #content.sidebar-open {
+                margin-left: 0;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar-overlay"></div>
+    
+    <div id="hamburger">
+        <i class="fas fa-bars"></i>
+    </div>
+
+    <div id="sidebar">
+        <ul class="sidebar-menu">
+            <li data-page="dashboard">
+                <i class="fas fa-chart-pie"></i> Tableau de bord
+            </li>
+            <li data-page="equipment">
+                <i class="fas fa-laptop"></i> Gestion du Matériel
+            </li>
+            <li data-page="services">
+                <i class="fas fa-building"></i> Services
+            </li>
+            <li data-page="tasks">
+                <i class="fas fa-tasks"></i> Tâches
+            </li>
+        </ul>
+    </div>
+
+    <div id="content">
+        <div id="dashboard" class="page active">
+            <h1>Tableau de bord</h1>
+            <div class="dashboard-stats">
+                <div class="card">
+                    <h3>Indicateurs Clés</h3>
+                    <div class="stats-grid">
+                        <div>
+                            <strong>Total Matériel:</strong> 
+                            <span class="status-badge status-active">42</span>
+                        </div>
+                        <div>
+                            <strong>Matériel en Panne:</strong> 
+                            <span class="status-badge status-failure">3</span>
+                        </div>
+                        <div>
+                            <strong>Tâches en Cours:</strong> 
+                            <span class="status-badge status-pending">7</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="equipment" class="page">
+            <h1>Gestion du Matériel</h1>
+            <div class="card">
+                <input type="text" placeholder="Rechercher..." class="search-input">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Marque</th>
+                            <th>Modèle</th>
+                            <th>Statut</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Dummy data -->
+                        <tr>
+                            <td>PC Portable</td>
+                            <td>Dell</td>
+                            <td>Latitude</td>
+                            <td><span class="status-badge status-active">En Service</span></td>
+                            <td>
+                                <button>Détails</button>
+                                <button>Modifier</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="services" class="page">
+            <h1>Gestion des Services</h1>
+            <div class="card">
+                <input type="text" placeholder="Rechercher..." class="search-input">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nom du Service</th>
+                            <th>Nombre d'Employés</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Ressources Humaines</td>
+                            <td>12</td>
+                            <td>
+                                <button>Détails</button>
+                                <button>Modifier</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="tasks" class="page">
+            <h1>Gestion des Tâches</h1>
+            <div class="card">
+                <input type="text" placeholder="Rechercher..." class="search-input">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Titre</th>
+                            <th>Priorité</th>
+                            <th>Statut</th>
+                            <th>Technicien</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Réparation PC Portable</td>
+                            <td>Haute</td>
+                            <td><span class="status-badge status-pending">En Cours</span></td>
+                            <td>Jean Dupont</td>
+                            <td>
+                                <button>Détails</button>
+                                <button>Modifier</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="floating-button">
+        <i class="fas fa-plus"></i>
+    </div>
+
+    <script>
+    $(document).ready(function() {
+        // Hamburger menu toggle
+        $('#hamburger, #sidebar-overlay').on('click', function() {
+            $('#sidebar, #sidebar-overlay').toggleClass('open');
+            $('#content').toggleClass('sidebar-open');
+        });
+
+        // Sidebar navigation
+        $('.sidebar-menu li').on('click', function() {
+            const pageId = $(this).data('page');
+            $('.page').removeClass('active');
+            $(`#${pageId}`).addClass('active');
+            
+            // Close sidebar on mobile
+            if ($(window).width() < 768) {
+                $('#sidebar, #sidebar-overlay').removeClass('open');
+                $('#content').removeClass('sidebar-open');
+            }
+        });
+
+        // Floating button (placeholder for add new modal)
+        $('.floating-button').on('click', function() {
+            alert('Fonctionnalité d\'ajout à implémenter');
+        });
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Bloque l'accès web direct aux fichiers sensibles (variables de connexion, etc.)
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>
+
+# Bloque aussi tout fichier .sql (dumps de schéma/données) placé par erreur dans le webroot
+<FilesMatch "\.sql$">
+    Require all denied
+</FilesMatch>
