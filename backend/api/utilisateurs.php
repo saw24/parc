@@ -50,7 +50,7 @@ switch ($action) {
                         SELECT
                             assigne_a,
                             SUM(CASE WHEN statut = 'Terminé' THEN 1 ELSE 0 END) as resolues,
-                            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                                      AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
                                 THEN 1 ELSE 0 END) as en_retard
                         FROM t_taches

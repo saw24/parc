@@ -60,6 +60,8 @@ switch ($actions) {
         $assigne_a = isset($_POST['assigne_a']) ? $_POST['assigne_a'] : '';
         $materiel_concerne = isset($_POST['materiel_concerne']) ? $_POST['materiel_concerne'] : '';
         $service_concerne = isset($_POST['service_concerne']) ? $_POST['service_concerne'] : '';
+        $motif_attente = isset($_POST['motif_attente']) ? $_POST['motif_attente'] : '';
+        $date_relance = isset($_POST['date_relance']) && !empty($_POST['date_relance']) ? $_POST['date_relance'] : null;
         $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : null;
         $actions = isset($_POST['actions']) ? $_POST['actions'] : '';
         $created_by_login = isset($_POST['created_by_login']) ? $_POST['created_by_login'] : '';
@@ -70,13 +72,20 @@ switch ($actions) {
             echo json_encode(['error' => 'Le titre, la priorité et le statut sont requis.']);
             exit();
         }
+        // Statut "En attente" : le motif d'attente et la date de relance sont exigés,
+        // pour que la pause soit tracée et relançable (visible par les décideurs).
+        if ($statut === 'En attente' && (empty($motif_attente) || empty($date_relance))) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Pour le statut « En attente », le motif d\'attente et la date de relance sont requis.']);
+            exit();
+        }
 
         try {
             // Trace: created_by_login et updated_by_login (si colonnes présentes)
-            $sql = "INSERT INTO t_taches (titre, motif_cause, description, priorite, statut, assigne_a, materiel_concerne, service_concerne, date_limite, actions, created_by_login, updated_by_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO t_taches (titre, motif_cause, description, priorite, statut, assigne_a, materiel_concerne, service_concerne, motif_attente, date_relance, date_limite, actions, created_by_login, updated_by_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
 
-            $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $date_limite, $actions, $created_by_login, $updated_by_login]);
+            $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $motif_attente, $date_relance, $date_limite, $actions, $created_by_login, $updated_by_login]);
 
             if ($result) {
                 // Email best-effort : ne doit jamais faire échouer la réponse de création,
@@ -130,6 +139,8 @@ switch ($actions) {
         $assigne_a = isset($_POST['assigne_a']) ? $_POST['assigne_a'] : '';
         $materiel_concerne = isset($_POST['materiel_concerne']) ? $_POST['materiel_concerne'] : '';
         $service_concerne = isset($_POST['service_concerne']) ? $_POST['service_concerne'] : '';
+        $motif_attente = isset($_POST['motif_attente']) ? $_POST['motif_attente'] : '';
+        $date_relance = isset($_POST['date_relance']) && !empty($_POST['date_relance']) ? $_POST['date_relance'] : null;
         $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : null;
         $actions = isset($_POST['actions']) ? $_POST['actions'] : '';
         $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
@@ -137,6 +148,12 @@ switch ($actions) {
         if (empty($titre) || empty($priorite) || empty($statut)) {
             http_response_code(400);
             echo json_encode(['error' => 'Le titre, la priorité et le statut sont requis.']);
+            exit();
+        }
+        // Statut "En attente" : le motif d'attente et la date de relance sont exigés.
+        if ($statut === 'En attente' && (empty($motif_attente) || empty($date_relance))) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Pour le statut « En attente », le motif d\'attente et la date de relance sont requis.']);
             exit();
         }
 
@@ -147,10 +164,10 @@ switch ($actions) {
             $ancienAssigneStmt->execute([$id]);
             $ancienAssigne = $ancienAssigneStmt->fetchColumn();
 
-            $sql = "UPDATE t_taches SET titre = ?, motif_cause = ?, description = ?, priorite = ?, statut = ?, assigne_a = ?, materiel_concerne = ?, service_concerne = ?, date_limite = ?, actions = ?, updated_by_login = ? WHERE id = ?";
+            $sql = "UPDATE t_taches SET titre = ?, motif_cause = ?, description = ?, priorite = ?, statut = ?, assigne_a = ?, materiel_concerne = ?, service_concerne = ?, motif_attente = ?, date_relance = ?, date_limite = ?, actions = ?, updated_by_login = ? WHERE id = ?";
             $stmt = $pdo->prepare($sql);
 
-            $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $date_limite, $actions, $updated_by_login, $id]);
+            $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $motif_attente, $date_relance, $date_limite, $actions, $updated_by_login, $id]);
 
             if ($result) {
                 if ($assigne_a !== '' && $assigne_a !== $ancienAssigne) {
@@ -243,10 +260,11 @@ switch ($actions) {
                 SELECT
                     SUM(CASE WHEN statut = 'À faire' THEN 1 ELSE 0 END) as new_tasks,
                     SUM(CASE WHEN statut = 'En cours' THEN 1 ELSE 0 END) as in_progress_tasks,
-                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                    SUM(CASE WHEN statut = 'En attente' THEN 1 ELSE 0 END) as pending_tasks,
+                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                              AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
                         THEN 1 ELSE 0 END) as late_tasks,
-                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                              AND date_limite IS NOT NULL
                              AND date_limite >= CURRENT_DATE
                              AND date_limite <= CURRENT_DATE + (? || ' days')::interval
@@ -262,18 +280,20 @@ switch ($actions) {
             // Ensure we return 0 if counts are null (no tasks)
             $stats['new_tasks'] = (int) $stats['new_tasks'];
             $stats['in_progress_tasks'] = (int) $stats['in_progress_tasks'];
+            $stats['pending_tasks'] = (int) $stats['pending_tasks'];
             $stats['late_tasks'] = (int) $stats['late_tasks'];
             $stats['echeance_proche_tasks'] = (int) $stats['echeance_proche_tasks'];
             $stats['completed_today'] = (int) $stats['completed_today'];
 
             // Jauge d'efficacité : Terminées / (Terminées + En retard), sur les tâches
             // assignées à l'utilisateur depuis moins de `efficacite_fenetre_jours` jours.
-            // Les tâches encore ouvertes non en retard et les tâches Annulées sont exclues
-            // du calcul (voir backend/config/parametres.php::compute_efficacite_pct).
+            // Les tâches encore ouvertes non en retard, les tâches Annulées et les tâches
+            // délibérément mises "En attente" sont exclues du calcul (ni un échec, ni
+            // imputable à l'agent — voir backend/config/parametres.php::compute_efficacite_pct).
             $effStmt = $pdo->prepare("
                 SELECT
                     SUM(CASE WHEN statut = 'Terminé' THEN 1 ELSE 0 END) as resolues,
-                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+                    SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                              AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
                         THEN 1 ELSE 0 END) as en_retard
                 FROM t_taches

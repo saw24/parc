@@ -97,10 +97,10 @@ function send_digest_emails(PDO $pdo, array $params): int
     $stmt = $pdo->prepare("
         SELECT
             assigne_a,
-            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                      AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
                 THEN 1 ELSE 0 END) as late_tasks,
-            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                      AND date_limite IS NOT NULL
                      AND date_limite >= CURRENT_DATE
                      AND date_limite <= CURRENT_DATE + (? || ' days')::interval
@@ -110,10 +110,10 @@ function send_digest_emails(PDO $pdo, array $params): int
         WHERE assigne_a IS NOT NULL AND TRIM(assigne_a) <> ''
         GROUP BY assigne_a
         HAVING
-            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+            SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                      AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE
                 THEN 1 ELSE 0 END) > 0
-            OR SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé')
+            OR SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente')
                      AND date_limite IS NOT NULL
                      AND date_limite >= CURRENT_DATE
                      AND date_limite <= CURRENT_DATE + (? || ' days')::interval

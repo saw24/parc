@@ -203,7 +203,7 @@ $(document).ready(function () {
 
     function resetTachesFilters() {
         $('#taches-search').val('');
-        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service, #filter-dormance').val('');
+        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service, #filter-echeance, #filter-dormance').val('');
         $('#filter-date-ajout-debut, #filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin').val('');
     }
 
@@ -214,6 +214,9 @@ $(document).ready(function () {
         if (filters.assigne) {
             ensureSelectOption('#filter-taches-assigne', filters.assigne);
             $('#filter-taches-assigne').val(filters.assigne);
+        }
+        if (filters.echeance) {
+            $('#filter-echeance').val(filters.echeance);
         }
         filterTaches();
     }
@@ -414,7 +417,10 @@ $(document).ready(function () {
                 'fa-clipboard-list',
                 () => goToTachesFiltered(
                     late_tasks > 0 ? 'en_retard' : 'echeance_proche',
-                    { assigne: localStorage.getItem('user_name') || '' }
+                    {
+                        assigne: localStorage.getItem('user_name') || '',
+                        echeance: late_tasks > 0 ? 'en_retard' : 'echeance_proche'
+                    }
                 )
             );
         }
@@ -468,7 +474,8 @@ $(document).ready(function () {
     $(document).on('click', '#late-tasks-badge', function(e) {
         e.stopPropagation();
         goToTachesFiltered('en_retard', {
-            assigne: localStorage.getItem('user_name') || ''
+            assigne: localStorage.getItem('user_name') || '',
+            echeance: 'en_retard'
         });
     });
 
@@ -1136,14 +1143,16 @@ $(document).ready(function () {
                         taches = taches.filter(t => t.statut === 'Terminé' && t.date_modification.slice(0, 10) === today);
                     } else if (filterDate === 'en_retard') {
                         taches = taches.filter(t => t.date_limite && t.date_limite.slice(0, 10) < today
-                            && t.statut !== 'Terminé' && t.statut !== 'Annulé');
+                            && t.statut !== 'Terminé' && t.statut !== 'Annulé' && t.statut !== 'En attente');
                     } else if (filterDate === 'echeance_proche') {
                         const dansNJours = new Date();
                         dansNJours.setDate(dansNJours.getDate() + appParams.seuil_echeance_proche_jours);
                         const dansNJoursStr = dansNJours.toISOString().slice(0, 10);
                         taches = taches.filter(t => t.date_limite && t.date_limite.slice(0, 10) >= today
                             && t.date_limite.slice(0, 10) <= dansNJoursStr
-                            && t.statut !== 'Terminé' && t.statut !== 'Annulé');
+                            && t.statut !== 'Terminé' && t.statut !== 'Annulé' && t.statut !== 'En attente');
+                    } else if (filterDate === 'en_attente') {
+                        taches = taches.filter(t => t.statut === 'En attente');
                     } else if (filterDate === 'non_prises_en_charge') {
                         // Tâches "À faire" jamais prises en charge depuis le seuil configuré
                         // (Paramètres > Seuils métier ; même seuil que l'action backend 'escalations').
@@ -1163,6 +1172,8 @@ $(document).ready(function () {
                         taches = taches.filter(t => t.statut === 'À faire');
                     } else if (filterStatut === 'En cours') {
                         taches = taches.filter(t => t.statut === 'En cours');
+                    } else if (filterStatut === 'En attente') {
+                        taches = taches.filter(t => t.statut === 'En attente');
                     } else if (filterStatut === 'Terminé') {
                         taches = taches.filter(t => t.statut === 'Terminé');
                     } else if (filterStatut === 'Annulé') {
@@ -1200,6 +1211,8 @@ $(document).ready(function () {
                         statusBadge = '<span class="status-badge status-success">Terminé</span>';
                     } else if (item.statut === 'En cours') {
                         statusBadge = '<span class="status-badge status-warning">En cours</span>';
+                    } else if (item.statut === 'En attente') {
+                        statusBadge = '<span class="status-badge status-pending">En attente</span>';
                     } else if (item.statut === 'Annulé') {
                         statusBadge = '<span class="status-badge status-danger">Annulé</span>';
                     } else {
@@ -1209,9 +1222,9 @@ $(document).ready(function () {
                     // Formatage de la date limite
                     const dateLimite = item.date_limite ? new Date(item.date_limite).toLocaleDateString('fr-FR') : '-';
 
-                    // Badge de retard / échéance proche (tâches non terminées/annulées uniquement)
+                    // Badge de retard / échéance proche (tâches non terminées/annulées/en attente uniquement)
                     let echeanceBadge = '';
-                    if (item.date_limite && item.statut !== 'Terminé' && item.statut !== 'Annulé') {
+                    if (item.date_limite && item.statut !== 'Terminé' && item.statut !== 'Annulé' && item.statut !== 'En attente') {
                         const todayStr = new Date().toISOString().slice(0, 10);
                         const dansNJours = new Date();
                         dansNJours.setDate(dansNJours.getDate() + appParams.seuil_echeance_proche_jours);
@@ -1258,6 +1271,8 @@ $(document).ready(function () {
                             <td>${item.motif_cause || '-'}</td>
                             <td>${item.service_concerne || '-'}</td>
                             <td>${item.materiel_concerne || '-'}</td>
+                            <td>${item.statut === 'En attente' ? (item.motif_attente || '-') : '-'}</td>
+                            <td>${item.statut === 'En attente' ? (item.date_relance ? new Date(item.date_relance).toLocaleDateString('fr-FR') : '-') : '-'}</td>
                             <td>${item.assigne_a || '-'}</td>
                             <td>${dateLimite}${echeanceBadge}</td>
                             <td>${priorityBadge}</td>
@@ -1289,7 +1304,7 @@ $(document).ready(function () {
             },
             error: function (xhr, status, error) {
                 console.error("Erreur lors du chargement des tâches:", error);
-                $('#taches-table tbody').html('<tr><td colspan="7" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
+                $('#taches-table tbody').html('<tr><td colspan="11" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
             }
         });
     }
@@ -1327,6 +1342,7 @@ $(document).ready(function () {
                 $('#taches-crees-aujourdhui').text(data.taches.crees_aujourdhui);
                 $('#taches-terminees-aujourdhui').text(data.taches.terminees_aujourdhui);
                 $('#taches-total').text(data.taches.total);
+                $('#taches-attente').text(data.taches.en_attente);
                 $('#taches-en-retard').text(data.taches.en_retard);
                 $('#taches-echeance-proche').text(data.taches.echeance_proche);
                 $('#taches-non-prises-en-charge').text(data.taches.non_prises_en_charge);
@@ -1561,6 +1577,48 @@ $(document).ready(function () {
             error: function() {
                 console.error('Erreur lors du chargement des tâches récentes');
                 $('.recent-activity tbody').html('<tr><td colspan="4" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des tâches.</td></tr>');
+            }
+        });
+    }
+
+    // Charge les 5 plus anciennes tâches "En attente" (motif d'attente + date de relance) :
+    // alerte visuelle pour les décideurs, sans attendre qu'elles prennent du retard.
+    function loadTachesEnAttente() {
+        $.ajax({
+            url: '../backend/api/dashboard.php?action=taches_en_attente',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                const container = $('#taches-en-attente-list');
+                container.empty();
+                const taches = (data && data.taches) || [];
+                if (taches.length === 0) {
+                    container.html('<div class="no-data">Aucune tâche en attente.</div>');
+                    return;
+                }
+                taches.forEach(function (t) {
+                    const priorityBadge = (t.priorite === 'Haute')
+                        ? '<span class="priority-badge priority-high">Haute</span>'
+                        : (t.priorite === 'Moyenne')
+                            ? '<span class="priority-badge priority-medium">Moyenne</span>'
+                            : '<span class="priority-badge priority-low">Basse</span>';
+                    const dateRelance = t.date_relance ? new Date(t.date_relance).toLocaleDateString('fr-FR') : '—';
+                    const item = `
+                        <div class="panne-item">
+                            <div class="panne-info">
+                                <div class="panne-title">${t.titre} ${priorityBadge}</div>
+                                <div class="panne-details">Motif : ${t.motif_attente || '—'}</div>
+                                <div class="panne-details">Relance : ${dateRelance} &middot; ${t.assigne_a || '—'}${t.service_concerne ? ' &middot; ' + t.service_concerne : ''}</div>
+                            </div>
+                            <div class="panne-count" title="Ancienneté de l'attente">${t.jours_en_attente} j</div>
+                        </div>
+                    `;
+                    container.append(item);
+                });
+            },
+            error: function () {
+                console.error('Erreur lors du chargement des tâches en attente');
+                $('#taches-en-attente-list').html('<div class="no-data">Erreur de chargement</div>');
             }
         });
     }
@@ -1811,6 +1869,7 @@ $(document).ready(function () {
     function refreshDashboardPeriode() {
         updateDashboardStats();
         loadRecentActivities();
+        loadTachesEnAttente();
         loadPannesRecurrentes();
         loadServicesDemandeurs();
         loadPannesParMois();
@@ -1852,11 +1911,14 @@ $(document).ready(function () {
         }
 
         if (page === 'taches') {
-            const filtresDate = ['crees_aujourdhui', 'terminees_aujourdhui', 'en_retard', 'echeance_proche', 'non_prises_en_charge'];
+            const filtresDate = ['crees_aujourdhui', 'terminees_aujourdhui', 'en_retard', 'echeance_proche', 'non_prises_en_charge', 'en_attente'];
             if (filter && filtresDate.includes(filter)) {
                 const filtresVisiblesParKpi = {
                     non_prises_en_charge: { statut: 'À faire' },
-                    terminees_aujourdhui: { statut: 'Terminé' }
+                    terminees_aujourdhui: { statut: 'Terminé' },
+                    en_retard: { echeance: 'en_retard' },
+                    echeance_proche: { echeance: 'echeance_proche' },
+                    en_attente: { statut: 'En attente' }
                 };
                 const filtresVisibles = filtresVisiblesParKpi[filter] || {};
                 goToTachesFiltered(filter, filtresVisibles);
@@ -2028,9 +2090,21 @@ $(document).ready(function () {
                     <select id="tache-statut" name="tache-statut">
                         <option value="À faire" selected>À faire</option>
                         <option value="En cours">En cours</option>
+                        <option value="En attente">En attente</option>
                         <option value="Terminé">Terminé</option>
                         <option value="Annulé">Annulé</option>
                     </select>
+                </div>
+            </div>
+            <!-- Champs propres au statut "En attente" : motif d'attente + date de relance -->
+            <div class="form-row" id="tache-attente-fields" style="display:none;">
+                <div class="form-group">
+                    <label for="tache-motif_attente">Motif d'attente</label>
+                    <textarea id="tache-motif_attente" name="tache-motif_attente" rows="2" placeholder="Pourquoi cette tâche est-elle en attente ? (pièce manquante, attente utilisateur, livraison...)"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="tache-date_relance">Date de relance</label>
+                    <input type="date" id="tache-date_relance" name="tache-date_relance">
                 </div>
             </div>
             <div class="form-row">
@@ -2267,6 +2341,13 @@ $(document).ready(function () {
                 $('#tache-service').off('change').on('change', function() {
                     $('#tache-materiel-filtre-service').val($(this).val());
                     renderTacheMaterielOptions();
+                });
+
+                // Affiche/masque les champs "Motif d'attente" + "Date de relance" selon le
+                // statut : ces informations ne sont pertinentes que pour "En attente".
+                $('#tache-statut').off('change').on('change', function() {
+                    const estEnAttente = $(this).val() === 'En attente';
+                    $('#tache-attente-fields').toggle(estEnAttente);
                 });
 
                 // Filtre par service et recherche par nom/n° de série du sélecteur de matériel
@@ -2657,6 +2738,10 @@ $(document).ready(function () {
                         $('#tache-desc').val(tache.description);
                         $('#tache-priorite').val(tache.priorite);
                         $('#tache-statut').val(tache.statut);
+                        $('#tache-motif_attente').val(tache.motif_attente);
+                        $('#tache-date_relance').val(tache.date_relance ? tache.date_relance.slice(0, 10) : '');
+                        // Affiche les champs "En attente" uniquement si le statut l'est
+                        $('#tache-attente-fields').toggle(tache.statut === 'En attente');
                         $('#tache-assigne').val(tache.assigne_a);
                         $('#tache-service').val(tache.service_concerne);
                         $('#tache-date-limite').val(tache.date_limite);
@@ -2768,6 +2853,8 @@ $(document).ready(function () {
                 assigne_a: updated.assigne_a,
                 materiel_concerne: updated.materiel_concerne,
                 service_concerne: updated.service_concerne,
+                motif_attente: updated.motif_attente || '',
+                date_relance: updated.date_relance ? updated.date_relance.slice(0, 10) : '',
                 date_limite: updated.date_limite ? updated.date_limite.slice(0, 10) : '',
                 actions: updated.actions,
                 updated_by_login: updatedByLogin
@@ -2778,6 +2865,7 @@ $(document).ready(function () {
                     refreshTachesData();
                     updateDashboardStats();
                     loadRecentActivities();
+                    loadTachesEnAttente();
                     loadTaskNotifications();
                 } else {
                     alert('Erreur: ' + (response.error || 'Une erreur est survenue.'));
@@ -2826,11 +2914,12 @@ $(document).ready(function () {
         const colonnes = {
             'À faire': $('#kanban-col-a-faire'),
             'En cours': $('#kanban-col-en-cours'),
+            'En attente': $('#kanban-col-en-attente'),
             'Terminé': $('#kanban-col-termine'),
             'Annulé': $('#kanban-col-annule')
         };
         Object.values(colonnes).forEach(c => c.empty());
-        const compteurs = { 'À faire': 0, 'En cours': 0, 'Terminé': 0, 'Annulé': 0 };
+        const compteurs = { 'À faire': 0, 'En cours': 0, 'En attente': 0, 'Terminé': 0, 'Annulé': 0 };
 
         taches.forEach(function (item) {
             const $colonne = colonnes[item.statut];
@@ -2847,7 +2936,7 @@ $(document).ready(function () {
             }
 
             let echeanceBadge = '';
-            if (item.date_limite && item.statut !== 'Terminé' && item.statut !== 'Annulé') {
+            if (item.date_limite && item.statut !== 'Terminé' && item.statut !== 'Annulé' && item.statut !== 'En attente') {
                 const todayStr = new Date().toISOString().slice(0, 10);
                 const dateLimiteStr = item.date_limite.slice(0, 10);
                 if (dateLimiteStr < todayStr) {
@@ -2868,6 +2957,7 @@ $(document).ready(function () {
 
         $('#kanban-count-a-faire').text(compteurs['À faire']);
         $('#kanban-count-en-cours').text(compteurs['En cours']);
+        $('#kanban-count-en-attente').text(compteurs['En attente']);
         $('#kanban-count-termine').text(compteurs['Terminé']);
         $('#kanban-count-annule').text(compteurs['Annulé']);
     }
@@ -2915,6 +3005,21 @@ $(document).ready(function () {
         const nouveauStatut = $(this).closest('.kanban-column').data('statut');
 
         if (!tache || !nouveauStatut || tache.statut === nouveauStatut) return;
+
+        // Passage en "En attente" : on exige le motif d'attente et la date de relance,
+        // pour que la pause soit tracée et relançable (visible par les décideurs).
+        if (nouveauStatut === 'En attente') {
+            const motif = prompt(`Motif d'attente pour « ${tache.titre} » :`, tache.motif_attente || '');
+            if (motif === null) return; // annulé
+            const dateRelance = prompt("Date de relance (format AAAA-MM-JJ) :", tache.date_relance ? tache.date_relance.slice(0, 10) : '');
+            if (dateRelance === null || !/^\d{4}-\d{2}-\d{2}$/.test((dateRelance || '').trim())) {
+                alert('Date de relance invalide. Utilisez le format AAAA-MM-JJ.');
+                return;
+            }
+            quickUpdateTache(tache, { statut: nouveauStatut, motif_attente: motif.trim(), date_relance: dateRelance.trim() });
+            return;
+        }
+
         quickUpdateTache(tache, { statut: nouveauStatut });
     });
 
@@ -3034,6 +3139,7 @@ $(document).ready(function () {
         const assigneFilter = $('#filter-taches-assigne').val();
         const materielFilter = $('#filter-taches-materiel').val();
         const serviceFilter = $('#filter-taches-service').val();
+        const echeanceFilter = $('#filter-echeance').val();
         const dateAjoutDebut = $('#filter-date-ajout-debut').val();
         const dateAjoutFin = $('#filter-date-ajout-fin').val();
         const dateLimiteDebut = $('#filter-date-limite-debut').val();
@@ -3046,14 +3152,19 @@ $(document).ready(function () {
             const motif = row.find('td:nth-child(3)').text().toLowerCase();
             const service = row.find('td:nth-child(4)').text().trim();
             const materiel = row.find('td:nth-child(5)').text().trim();
-            const assigne = row.find('td:nth-child(6)').text().trim();
-            const priorite = row.find('td:nth-child(8) .priority-badge').text().trim();
+            const assigne = row.find('td:nth-child(8)').text().trim();
+            const priorite = row.find('td:nth-child(10) .priority-badge').text().trim();
             // .first() : la cellule Statut peut désormais contenir un 2e badge ("Inactive Xj")
             const statut = row.find('td:nth-child(1) .status-badge').first().text().trim();
             const dateAjout = row.data('date-ajout') || '';
             const dateLimite = row.data('date-limite') || '';
             const dateModif = row.data('date-modification') || '';
             const statutRaw = row.data('statut-raw') || '';
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const dansNJours = new Date();
+            dansNJours.setDate(dansNJours.getDate() + appParams.seuil_echeance_proche_jours);
+            const dansNJoursStr = dansNJours.toISOString().slice(0, 10);
+            const estOuverte = statutRaw !== 'Terminé' && statutRaw !== 'Annulé' && statutRaw !== 'En attente';
 
             // La recherche libre porte sur le titre ET le motif/cause
             const matchesSearch = !searchTerm || titre.indexOf(searchTerm) > -1 || motif.indexOf(searchTerm) > -1;
@@ -3062,6 +3173,9 @@ $(document).ready(function () {
             const matchesAssigne = !assigneFilter || assigne === assigneFilter;
             const matchesMateriel = !materielFilter || materiel === materielFilter;
             const matchesService = !serviceFilter || service === serviceFilter;
+            const matchesEcheance = !echeanceFilter
+                || (echeanceFilter === 'en_retard' && estOuverte && dateLimite && dateLimite < todayStr)
+                || (echeanceFilter === 'echeance_proche' && estOuverte && dateLimite && dateLimite >= todayStr && dateLimite <= dansNJoursStr);
             const matchesDateAjout = (!dateAjoutDebut || (dateAjout && dateAjout >= dateAjoutDebut))
                 && (!dateAjoutFin || (dateAjout && dateAjout <= dateAjoutFin));
             const matchesDateLimite = (!dateLimiteDebut || (dateLimite && dateLimite >= dateLimiteDebut))
@@ -3082,7 +3196,7 @@ $(document).ready(function () {
                 }
             }
 
-            row.toggle(matchesSearch && matchesPriorite && matchesStatut && matchesAssigne
+            row.toggle(matchesSearch && matchesPriorite && matchesStatut && matchesAssigne && matchesEcheance
                 && matchesMateriel && matchesService && matchesDateAjout && matchesDateLimite
                 && matchesDormance);
         });
@@ -3109,25 +3223,17 @@ $(document).ready(function () {
 
     // Appliquer les filtres en temps réel
     $('#taches-search, #filter-priorite, #filter-statut, #filter-taches-assigne, ' +
-      '#filter-taches-materiel, #filter-taches-service, #filter-date-ajout-debut, ' +
+      '#filter-taches-materiel, #filter-taches-service, #filter-echeance, #filter-date-ajout-debut, ' +
       '#filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin, #filter-dormance')
         .on('change keyup', filterTaches);
 
     // Réinitialiser tous les filtres de la liste des tâches
     $('#btn-reset-filtres-taches').on('click', function () {
         $('#taches-search').val('');
-        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service, #filter-dormance').val('');
+        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service, #filter-echeance, #filter-dormance').val('');
         $('#filter-date-ajout-debut, #filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin').val('');
         filterTaches();
     });
-
-    $('#filter-statut').on('change', function() {
-        const statut = $(this).val();
-        xstatut = statut;
-        loadTaches(null, statut);
-    });
-    
-
 
     // On charge le matériel, les services, les utilisateurs et les tâches au démarrage de l'application
     loadMateriel();
@@ -3136,6 +3242,7 @@ $(document).ready(function () {
     loadTaches();
     updateDashboardStats();
     loadRecentActivities(); // Charge les tâches récentes
+    loadTachesEnAttente();  // Les 5 plus anciennes tâches en attente (alerte décideurs)
     loadPannesRecurrentes();
     loadParcLifecycle();
     loadServicesDemandeurs();
@@ -3156,6 +3263,7 @@ $(document).ready(function () {
         if ($('#dashboard-page').hasClass('active')) {
             updateDashboardStats();
             loadRecentActivities(); // Charge les tâches récentes
+            loadTachesEnAttente();  // Les 5 plus anciennes tâches en attente (alerte décideurs)
             loadPannesRecurrentes();
             loadServicesDemandeurs();
             loadPannesParMois();
@@ -3377,6 +3485,8 @@ $(document).ready(function () {
             description: $('#tache-desc').val(),
             priorite: $('#tache-priorite').val(),
             statut: $('#tache-statut').val(),
+            motif_attente: $('#tache-motif_attente').val(),
+            date_relance: $('#tache-date_relance').val(),
             assigne_a: $('#tache-assigne').val(),
             service_concerne: $('#tache-service').val(),
             materiel_concerne: $('#tache-materiel').val(),
@@ -3406,6 +3516,7 @@ $(document).ready(function () {
                     loadTaches();
                     updateDashboardStats();
                     loadRecentActivities();
+                    loadTachesEnAttente();
                     // Recharger les selects
                     loadMaterielInSelects();
                     // Supprimer le champ id caché s'il existe

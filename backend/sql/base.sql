@@ -42,9 +42,11 @@ CREATE TABLE IF NOT EXISTS t_taches (
     titre VARCHAR(255) NOT NULL,
     description TEXT,
     priorite ENUM('Basse', 'Moyenne', 'Haute') NOT NULL DEFAULT 'Moyenne',
-    statut ENUM('À faire', 'En cours', 'Terminé', 'Annulé') NOT NULL DEFAULT 'À faire',
+    statut ENUM('À faire', 'En cours', 'En attente', 'Terminé', 'Annulé') NOT NULL DEFAULT 'À faire',
     assigne_a VARCHAR(100),
     materiel_concerne VARCHAR(255),
+    motif_attente TEXT,
+    date_relance DATE,
     date_limite DATE,
     date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     date_modification TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

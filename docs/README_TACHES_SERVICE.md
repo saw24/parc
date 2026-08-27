@@ -37,10 +37,12 @@ CREATE TABLE t_taches (
     titre VARCHAR(255) NOT NULL,
     description TEXT,
     priorite ENUM('Basse', 'Moyenne', 'Haute') NOT NULL DEFAULT 'Moyenne',
-    statut ENUM('À faire', 'En cours', 'Terminé', 'Annulé') NOT NULL DEFAULT 'À faire',
+    statut ENUM('À faire', 'En cours', 'En attente', 'Terminé', 'Annulé') NOT NULL DEFAULT 'À faire',
     assigne_a VARCHAR(100),
     materiel_concerne VARCHAR(255),
     service_concerne VARCHAR(100),  -- NOUVEAU CHAMP
+    motif_attente TEXT,             -- NOUVEAU CHAMP (motif d'attente, requis pour statut 'En attente')
+    date_relance DATE,              -- NOUVEAU CHAMP (date de relance, requis pour statut 'En attente')
     date_limite DATE,
     date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     date_modification TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

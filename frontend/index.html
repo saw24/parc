@@ -184,6 +184,21 @@
                         </div>
                     </div>
                     <div
+                        class="card status-warning"
+                        id="card-taches-attente"
+                        data-page="taches"
+                        data-filter="en_attente"
+                        title="Tâches volontairement mises en attente (pause)"
+                    >
+                        <div class="card-icon">
+                            <i class="fas fa-pause-circle"></i>
+                        </div>
+                        <div class="card-info">
+                            <div class="card-title">Tâches En Attente</div>
+                            <div class="card-value" id="taches-attente">0</div>
+                        </div>
+                    </div>
+                    <div
                         class="card status-info"
                         id="card-taches-crees"
                         data-page="taches"
@@ -312,6 +327,18 @@
                                 Top Résolveurs (période sélectionnée)
                             </h3>
                             <div id="top-resolveurs-list">
+                                <!-- Données chargées dynamiquement --></div>
+                        </div>
+                    </div>
+                    <div class="analytics-row">
+                        <!-- Les 5 plus anciennes tâches en attente : alerte décideurs -->
+                        <div class="analytics-card">
+                            <h3>
+                                <i class="fas fa-pause-circle"></i>
+                                Les 5 plus anciennes tâches en attente
+                                <span class="field-hint" style="margin-left:auto;">Motif &amp; date de relance</span>
+                            </h3>
+                            <div id="taches-en-attente-list">
                                 <!-- Données chargées dynamiquement --></div>
                         </div>
                     </div>
@@ -495,6 +522,7 @@
                             <option value="">Tous les statuts</option>
                             <option value="À faire">À faire</option>
                             <option value="En cours">En cours</option>
+                            <option value="En attente">En attente</option>
                             <option value="Terminé">Terminées</option>
                             <option value="Annulé">Annulées</option>
                         </select>
@@ -503,6 +531,11 @@
                         </select>
                         <select id="filter-taches-service">
                             <option value="">Tous les services</option>
+                        </select>
+                        <select id="filter-echeance">
+                            <option value="">Toutes les échéances</option>
+                            <option value="en_retard">En retard</option>
+                            <option value="echeance_proche">Échéance proche</option>
                         </select>
                         <span id="filtres-avances-badge" class="filtres-avances-badge" style="display:none;"></span>
                     </div>
@@ -525,6 +558,10 @@
                         <div class="kanban-column-header status-warning">En cours <span class="kanban-count" id="kanban-count-en-cours">0</span></div>
                         <div class="kanban-column-body" id="kanban-col-en-cours"></div>
                     </div>
+                    <div class="kanban-column" data-statut="En attente">
+                        <div class="kanban-column-header status-warning">En attente <span class="kanban-count" id="kanban-count-en-attente">0</span></div>
+                        <div class="kanban-column-body" id="kanban-col-en-attente"></div>
+                    </div>
                     <div class="kanban-column" data-statut="Terminé">
                         <div class="kanban-column-header status-success">Terminé <span class="kanban-count" id="kanban-count-termine">0</span></div>
                         <div class="kanban-column-body" id="kanban-col-termine"></div>
@@ -543,6 +580,8 @@
                                 <th>Motif/Cause</th>
                                 <th>Service</th>
                                 <th>Matériel Concerné</th>
+                                <th>Motif d'attente</th>
+                                <th>Date de relance</th>
                                 <th>Assigné à</th>
                                 <th>Date Limite</th>
                                 <th>Priorité</th>

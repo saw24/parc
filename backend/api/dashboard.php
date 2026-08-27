@@ -65,6 +65,15 @@ switch ($action) {
             $stmt->execute([$periodeDebut, $periodeFin]);
             $tachesEnCours = $stmt->fetchColumn();
 
+            // Tâches "En attente" (pause volontaire, avec motif/date de relance), parmi
+            // celles déclarées sur la période — KPI dédié aux décideurs.
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) FROM t_taches
+                WHERE statut = 'En attente' AND date_creation::date BETWEEN ? AND ?
+            ");
+            $stmt->execute([$periodeDebut, $periodeFin]);
+            $tachesEnAttente = $stmt->fetchColumn();
+
             // Tâches déclarées aujourd'hui (toujours "aujourd'hui", indépendant de la période)
             $stmt = $pdo->query("SELECT COUNT(*) as crees_aujourdhui FROM t_taches WHERE date_creation::date = CURRENT_DATE");
             $tachesCreesAujourdhui = $stmt->fetchColumn();
@@ -84,20 +93,20 @@ switch ($action) {
                 SELECT COUNT(*) FROM t_taches
                 WHERE date_limite IS NOT NULL
                   AND date_limite < CURRENT_DATE
-                  AND statut NOT IN ('Terminé', 'Annulé')
+                  AND statut NOT IN ('Terminé', 'Annulé', 'En attente')
                   AND date_creation::date BETWEEN ? AND ?
             ");
             $stmt->execute([$periodeDebut, $periodeFin]);
             $tachesEnRetard = $stmt->fetchColumn();
 
             // Tâches à échéance proche (seuil configurable, Paramètres > Seuils métier),
-            // parmi celles déclarées sur la période, pas terminées/annulées
+            // parmi celles déclarées sur la période, pas terminées/annulées/en attente
             $stmt = $pdo->prepare("
                 SELECT COUNT(*) FROM t_taches
                 WHERE date_limite IS NOT NULL
                   AND date_limite >= CURRENT_DATE
                   AND date_limite <= CURRENT_DATE + (? || ' days')::interval
-                  AND statut NOT IN ('Terminé', 'Annulé')
+                  AND statut NOT IN ('Terminé', 'Annulé', 'En attente')
                   AND date_creation::date BETWEEN ? AND ?
             ");
             $stmt->execute([$seuilEcheanceProche, $periodeDebut, $periodeFin]);
@@ -136,6 +145,7 @@ switch ($action) {
                 ],
                 'taches' => [
                     'en_cours' => $tachesEnCours,
+                    'en_attente' => $tachesEnAttente,
                     'total' => $totalTaches,
                     'crees_aujourdhui' => $tachesCreesAujourdhui,
                     'terminees_aujourdhui' => $tachesTermineesAujourdhui,
@@ -169,6 +179,7 @@ switch ($action) {
                                 CASE
                                     WHEN statut = 'Terminé' THEN 'success'
                                     WHEN statut = 'En cours' THEN 'warning'
+                                    WHEN statut = 'En attente' THEN 'pending'
                                     WHEN statut = 'Annulé' THEN 'danger'
                                     ELSE 'info'
                                 END as status_class
@@ -363,6 +374,33 @@ switch ($action) {
             http_response_code(500);
             error_log('Erreur lors de la récupération des escalades: ' . $e->getMessage());
             echo json_encode(['error' => 'Erreur lors de la récupération des escalades.']);
+        }
+        break;
+
+    case 'taches_en_attente':
+        // Les 5 plus anciennes tâches "En attente" (par date de création croissante) :
+        // met en lumière auprès des décideurs les dossiers bloqués le plus longtemps,
+        // avec le motif d'attente et la date de relance pour relancer la résolution.
+        try {
+            $stmt = $pdo->query("
+                SELECT id, titre, priorite, assigne_a, service_concerne, materiel_concerne,
+                       motif_attente, date_relance, date_creation,
+                       (CURRENT_DATE - date_creation::date) as jours_en_attente
+                FROM t_taches
+                WHERE statut = 'En attente'
+                ORDER BY date_creation ASC
+                LIMIT 5
+            ");
+            $taches = $stmt->fetchAll();
+
+            echo json_encode([
+                'limite' => 5,
+                'taches' => $taches
+            ]);
+        } catch (PDOException $e) {
+            http_response_code(500);
+            error_log('Erreur lors de la récupération des tâches en attente: ' . $e->getMessage());
+            echo json_encode(['error' => 'Erreur lors de la récupération des tâches en attente.']);
         }
         break;
 
