@@ -4,4 +4,4 @@
 -- n'est pas fiable comme adresse email (les comptes existants utilisent des logins
 -- courts type "admin", "saw24", pas forcément une adresse valide).
 
-ALTER TABLE t_utilisateurs ADD COLUMN email VARCHAR(255);
+ALTER TABLE t_utilisateurs ADD COLUMN IF NOT EXISTS email VARCHAR(255);

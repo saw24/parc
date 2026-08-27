@@ -21,11 +21,11 @@ switch ($action) {
     // BLOC POUR LA LECTURE
     // ===============================================
     case 'read':
-        // Lister TOUS les utilisateurs est réservé aux administrateurs (fuite de logins/
-        // emails sinon). Un utilisateur non-admin ne peut lire que sa propre fiche, via
-        // ?id=... — c'est déjà ce que fait le frontend (loadUtilisateurs()) pour ce rôle.
+        // Lister les utilisateurs est accessible aux administrateurs et techniciens
+        // (pour la sélection de l'assigné sur la fiche de tâches et matériel).
+        // Un utilisateur non-admin ne peut lire que sa propre fiche détaillée avec ?id=...
         if (!isset($_GET['id'])) {
-            require_role($currentUser, ['Administrateur']);
+            require_role($currentUser, ['Administrateur', 'Technicien']);
         }
 
         try {

@@ -189,12 +189,56 @@ $(document).ready(function () {
     // Navigue vers la page Tâches (vue liste) avec un filtre de date/statut appliqué —
     // réutilisé par les badges du header et les toasts d'alerte pour rendre chaque
     // notification directement actionnable.
-    function goToTachesFiltered(filterDateValue) {
-        $(`.sidebar-menu a[href="#taches"]`).click();
+    function ensureSelectOption(selector, value) {
+        if (!value) return;
+        const $select = $(selector);
+        const optionExists = $select.find('option').filter(function() {
+            return $(this).val() === value;
+        }).length > 0;
+        if ($select.length === 0 || optionExists) {
+            return;
+        }
+        $select.append(`<option value="${value}">${value}</option>`);
+    }
+
+    function resetTachesFilters() {
+        $('#taches-search').val('');
+        $('#filter-priorite, #filter-statut, #filter-taches-assigne, #filter-taches-materiel, #filter-taches-service, #filter-dormance').val('');
+        $('#filter-date-ajout-debut, #filter-date-ajout-fin, #filter-date-limite-debut, #filter-date-limite-fin').val('');
+    }
+
+    function applyTachesVisibleFilters(filters) {
+        if (filters.statut) {
+            $('#filter-statut').val(filters.statut);
+        }
+        if (filters.assigne) {
+            ensureSelectOption('#filter-taches-assigne', filters.assigne);
+            $('#filter-taches-assigne').val(filters.assigne);
+        }
+        filterTaches();
+    }
+
+    function showPageWithoutAutoLoad(page) {
+        const $link = $(`.sidebar-menu a[href="#${page}"]`);
+        $('.sidebar-menu li').removeClass('active');
+        $link.parent('li').addClass('active');
+        $('#main-title').text($link.data('title'));
+        $('.page-content').removeClass('active');
+        $('#' + page + '-page').addClass('active');
+        if ($(window).width() <= 768) {
+            $('body').removeClass('sidebar-open');
+        }
+    }
+
+    function goToTachesFiltered(filterDateValue, filters = {}) {
+        showPageWithoutAutoLoad('taches');
         $('#btn-vue-liste').trigger('click');
-        $('#filter-statut').val('');
-        $('#filter-priorite').val('');
-        setTimeout(() => loadTaches(filterDateValue), 0);
+        resetTachesFilters();
+        setTimeout(() => {
+            loadTaches(filterDateValue, null, function() {
+                applyTachesVisibleFilters(filters);
+            });
+        }, 0);
     }
 
     // Mémorise les tâches déjà notifiées (par utilisateur), pour ne notifier qu'une
@@ -268,12 +312,18 @@ $(document).ready(function () {
 
                     if (nouvelles.length > 0) {
                         if (nouvelles.length === 1) {
-                            showToast('Nouvelle tâche assignée', nouvelles[0].titre, 'fa-tasks');
+                            showToast(
+                                'Nouvelle tâche assignée',
+                                nouvelles[0].titre,
+                                'fa-tasks',
+                                () => goToTachesFiltered(null, { statut: 'À faire', assigne: userName })
+                            );
                         } else {
                             showToast(
                                 'Nouvelles tâches assignées',
                                 `Vous avez ${nouvelles.length} nouvelles tâches à traiter.`,
-                                'fa-tasks'
+                                'fa-tasks',
+                                () => goToTachesFiltered(null, { statut: 'À faire', assigne: userName })
                             );
                         }
                         setTachesNotifiees(dejaNotifiees.concat(nouvelles.map(t => t.id)));
@@ -362,7 +412,10 @@ $(document).ready(function () {
                 'Résumé de vos tâches',
                 `Vous avez ${parts.join(' et ')}.${enCoursSuffix} Cliquez pour voir la liste.`,
                 'fa-clipboard-list',
-                () => goToTachesFiltered(late_tasks > 0 ? 'en_retard' : 'echeance_proche')
+                () => goToTachesFiltered(
+                    late_tasks > 0 ? 'en_retard' : 'echeance_proche',
+                    { assigne: localStorage.getItem('user_name') || '' }
+                )
             );
         }
     }
@@ -386,7 +439,7 @@ $(document).ready(function () {
                     'Tâches non prises en charge',
                     `${taches.length} tâche(s) "À faire" depuis plus de ${data.seuil_jours} jours sans prise en charge. Cliquez pour voir la liste.`,
                     'fa-triangle-exclamation',
-                    () => goToTachesFiltered('non_prises_en_charge')
+                    () => goToTachesFiltered('non_prises_en_charge', { statut: 'À faire' })
                 );
             },
             error: function (xhr, status, error) {
@@ -398,38 +451,25 @@ $(document).ready(function () {
     // Ajout des gestionnaires d'événements pour les badges
     $(document).on('click', '#new-tasks-badge', function(e) {
         e.stopPropagation(); // Évite de déclencher aussi l'ouverture du menu utilisateur
-        const page = $(this).data('page');
-
-        if (page) {
-            // Simuler un clic sur le menu pour changer de page
-            $(`.sidebar-menu a[href="#${page}"]`).click();
-            $('#btn-vue-liste').trigger('click'); // Les filtres ne s'appliquent qu'en vue liste
-            $('#filter-statut').val('À faire').change(); // On met le filtre sur 'À faire'
-        }
+        goToTachesFiltered(null, {
+            statut: 'À faire',
+            assigne: localStorage.getItem('user_name') || ''
+        });
 
     });
 
     $(document).on('click', '#in-progress-tasks-badge', function() {
-        const page = $(this).data('page');
-        const filter = $(this).data('filter');
-
-        if (page) {
-            // Simuler un clic sur le menu pour changer de page
-            $(`.sidebar-menu a[href="#${page}"]`).click();
-            $('#btn-vue-liste').trigger('click');
-            $('#filter-statut').val('En cours').change(); // On met le filtre sur 'En cours'
-        }
-
-
+        goToTachesFiltered(null, {
+            statut: 'En cours',
+            assigne: localStorage.getItem('user_name') || ''
+        });
     });
 
     $(document).on('click', '#late-tasks-badge', function(e) {
         e.stopPropagation();
-        const page = $(this).data('page');
-
-        if (page) {
-            goToTachesFiltered('en_retard');
-        }
+        goToTachesFiltered('en_retard', {
+            assigne: localStorage.getItem('user_name') || ''
+        });
     });
 
 
@@ -1061,7 +1101,7 @@ $(document).ready(function () {
     }
 
     // Fonction pour charger et afficher les tâches depuis l'API
-    function loadTaches(filterDate = null, filterStatut = null) {
+    function loadTaches(filterDate = null, filterStatut = null, onLoaded = null) {
         const userRole = localStorage.getItem('user_role');
         const userName = localStorage.getItem('user_name');
         let apiUrl = '../backend/api/taches.php?action=read';
@@ -1240,6 +1280,10 @@ $(document).ready(function () {
                 populerFiltreDepuisValeurs('#filter-taches-assigne', taches.map(t => t.assigne_a));
                 populerFiltreDepuisValeurs('#filter-taches-materiel', taches.map(t => t.materiel_concerne));
                 populerFiltreDepuisValeurs('#filter-taches-service', taches.map(t => t.service_concerne));
+
+                if (typeof onLoaded === 'function') {
+                    onLoaded();
+                }
 
                 //updateTotalCount('#taches-table', '#taches-total');
             },
@@ -1803,40 +1847,38 @@ $(document).ready(function () {
         const page = $(this).data('page');
         const filter = $(this).data('filter');
 
-        if (page) {
-            // Simuler un clic sur le menu pour changer de page
-            $(`.sidebar-menu a[href="#${page}"]`).click();
-
-            // Appliquer le filtre après un court délai pour laisser le temps à la page de se charger
-            setTimeout(() => {
-                if (page === 'taches') {
-                    // Les filtres appliqués ci-dessous ne concernent que la vue liste :
-                    // on y revient systématiquement (le Kanban n'a pas de notion de filtre).
-                    $('#btn-vue-liste').trigger('click');
-
-                    // Les filtres "date" (crees_aujourdhui, terminees_aujourdhui, en_retard,
-                    // echeance_proche) ne correspondent à aucun select visible : on les
-                    // applique directement. Les autres (ex: "En cours") sont des valeurs de
-                    // statut : on passe par le select #filter-statut existant pour que l'UI
-                    // de filtre reste synchronisée avec ce qui est affiché.
-                    const filtresDate = ['crees_aujourdhui', 'terminees_aujourdhui', 'en_retard', 'echeance_proche', 'non_prises_en_charge'];
-                    $('#filter-priorite').val('');
-                    if (filter && filtresDate.includes(filter)) {
-                        $('#filter-statut').val('');
-                        loadTaches(filter);
-                    } else if (filter) {
-                        $('#filter-statut').val(filter).change();
-                    } else {
-                        $('#filter-statut').val('');
-                        loadTaches();
-                    }
-                } else if (page === 'materiel' && filter) {
-                    // Pour le matériel, on peut simuler une recherche
-                    $('#materiel-search').val(filter).keyup();
-                }
-                // Pour les cartes sans filtre (total), ne rien faire de plus
-            }, 100);
+        if (!page) {
+            return;
         }
+
+        if (page === 'taches') {
+            const filtresDate = ['crees_aujourdhui', 'terminees_aujourdhui', 'en_retard', 'echeance_proche', 'non_prises_en_charge'];
+            if (filter && filtresDate.includes(filter)) {
+                const filtresVisiblesParKpi = {
+                    non_prises_en_charge: { statut: 'À faire' },
+                    terminees_aujourdhui: { statut: 'Terminé' }
+                };
+                const filtresVisibles = filtresVisiblesParKpi[filter] || {};
+                goToTachesFiltered(filter, filtresVisibles);
+            } else if (filter) {
+                goToTachesFiltered(null, { statut: filter });
+            } else {
+                goToTachesFiltered();
+            }
+            return;
+        }
+
+        // Simuler un clic sur le menu pour changer de page
+        $(`.sidebar-menu a[href="#${page}"]`).click();
+
+        // Appliquer le filtre après un court délai pour laisser le temps à la page de se charger
+        setTimeout(() => {
+            if (page === 'materiel' && filter) {
+                // Pour le matériel, on peut simuler une recherche
+                $('#materiel-search').val(filter).keyup();
+            }
+            // Pour les cartes sans filtre (total), ne rien faire de plus
+        }, 100);
     });
 
     // --- Gestion de la Fenêtre Modale (Finale) ---
@@ -1861,6 +1903,40 @@ $(document).ready(function () {
     // Restaure le footer standard (Annuler/Enregistrer) de la modale de formulaire.
     function resetModalFooter() {
         modalFooter.html(modalFooterDefaultHtml).show();
+    }
+
+    function setTacheSavePending($form, isPending) {
+        const $saveButton = $('#modal-save');
+        if (isPending) {
+            $form.data('savePending', true);
+            $saveButton.data('defaultText', $saveButton.text());
+            $saveButton
+                .prop('disabled', true)
+                .text('Enregistrement...')
+                .css('opacity', '0.6')
+                .css('cursor', 'wait');
+            return;
+        }
+
+        $form.removeData('savePending');
+        $saveButton
+            .prop('disabled', false)
+            .text($saveButton.data('defaultText') || 'Enregistrer')
+            .css('opacity', '')
+            .css('cursor', '');
+    }
+
+    function enableTacheSaveButton() {
+        const $form = $('#tache-form');
+        if ($form.length > 0) {
+            setTacheSavePending($form, false);
+        } else {
+            $('#modal-save')
+                .prop('disabled', false)
+                .text('Enregistrer')
+                .css('opacity', '')
+                .css('cursor', '');
+        }
     }
 
     // Définir le HTML pour les formulaires
@@ -2597,6 +2673,8 @@ $(document).ready(function () {
                         // Cacher/désactiver le bouton enregistrer si le user n'est pas admin et la tâche ne lui est pas assignée
                         if (userRole !== 'Administrateur' && userName !== tache.assigne_a) {
                             $('#modal-save').prop('disabled', true).css('opacity', '0.5').css('cursor', 'not-allowed');
+                        } else {
+                            enableTacheSaveButton();
                         }
 
                         
@@ -3285,21 +3363,28 @@ $(document).ready(function () {
     $('#form-modal').on('submit', '#tache-form', function(e) {
         e.preventDefault(); // Empêche le rechargement de la page
 
+        const $form = $(this);
+        if ($form.data('savePending') || $('#modal-save').prop('disabled')) {
+            return;
+        }
+
+        setTacheSavePending($form, true);
+
         // On récupère les données du formulaire
-                    const formData = {
-                titre: $('#tache-titre').val(),
-                motif_cause: $('#tache-motif_cause').val(),
-                description: $('#tache-desc').val(),
-                priorite: $('#tache-priorite').val(),
-                statut: $('#tache-statut').val(),
-                assigne_a: $('#tache-assigne').val(),
-                service_concerne: $('#tache-service').val(),
-                materiel_concerne: $('#tache-materiel').val(),
-                date_limite: $('#tache-date-limite').val(),
-                actions: $('#tache-actions').val(),
-                created_by_login: localStorage.getItem('user_login') || '',
-                updated_by_login: localStorage.getItem('user_login') || ''
-            };
+        const formData = {
+            titre: $('#tache-titre').val(),
+            motif_cause: $('#tache-motif_cause').val(),
+            description: $('#tache-desc').val(),
+            priorite: $('#tache-priorite').val(),
+            statut: $('#tache-statut').val(),
+            assigne_a: $('#tache-assigne').val(),
+            service_concerne: $('#tache-service').val(),
+            materiel_concerne: $('#tache-materiel').val(),
+            date_limite: $('#tache-date-limite').val(),
+            actions: $('#tache-actions').val(),
+            created_by_login: localStorage.getItem('user_login') || '',
+            updated_by_login: localStorage.getItem('user_login') || ''
+        };
         
         // Déterminer si c'est une création ou une mise à jour
         const hasId = $(this).find('input[name="id"]').length > 0;
@@ -3329,6 +3414,7 @@ $(document).ready(function () {
                     $('#tache-form')[0].reset();
                 } else {
                     // Sinon, on affiche l'erreur
+                    setTacheSavePending($form, false);
                     alert('Erreur: ' + (response.error || 'Une erreur inconnue est survenue'));
                 }
             },
@@ -3341,12 +3427,21 @@ $(document).ready(function () {
                 } catch(e) {
                     alert('Une erreur de communication avec le serveur est survenue. Veuillez vérifier la console pour plus de détails.');
                 }
+            },
+            complete: function() {
+                if ($('#tache-form').length > 0) {
+                    setTacheSavePending($form, false);
+                }
             }
         });
     });
 
     // Assurez-vous que le bouton "Enregistrer" déclenche la soumission du formulaire actif
     $('#form-modal').on('click', '#modal-save', function() {
+        if ($(this).prop('disabled')) {
+            return;
+        }
+
         // Déterminer quel formulaire est actuellement affiché dans la modale
         if ($('#materiel-form').length > 0) {
             $('#materiel-form').trigger('submit');

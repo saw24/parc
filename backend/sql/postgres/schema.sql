@@ -22,6 +22,7 @@ CREATE TABLE t_utilisateurs (
     id                 SERIAL PRIMARY KEY,
     nom                VARCHAR(100) NOT NULL,
     login              VARCHAR(100) NOT NULL UNIQUE,
+    email              VARCHAR(255),
     role               VARCHAR(50)  NOT NULL,
     mot_de_passe       VARCHAR(255) NOT NULL,
     date_creation      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
