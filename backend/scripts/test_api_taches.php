@@ -17,6 +17,7 @@ $postData = http_build_query([
     'priorite' => 'Moyenne',
     'statut' => 'À faire',
     'assigne_a' => 'Test Technicien',
+    'service_concerne' => 'Informatique',
     'materiel_concerne' => 'PC Test',
     'date_limite' => '2025-12-31'
 ]);

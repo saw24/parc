@@ -2069,8 +2069,8 @@ $(document).ready(function () {
     const tachesFormHtml = `
         <form id="tache-form">
             <div class="form-group">
-                <label for="tache-titre">Titre (Problème/Demande)</label>
-                <input type="text" id="tache-titre" name="tache-titre" placeholder="Ex: Remplacer un disque dur">
+                <label for="tache-titre" class="required-label">Titre (Problème/Demande)</label>
+                <input type="text" id="tache-titre" name="tache-titre" required placeholder="Ex: Remplacer un disque dur">
             </div>
             <div class="form-group">
                 <label for="tache-motif_cause">Motif/Cause</label>
@@ -2079,15 +2079,15 @@ $(document).ready(function () {
             <div class="form-row">
                 <div class="form-group">
                     <label for="tache-priorite">Priorité</label>
-                    <select id="tache-priorite" name="tache-priorite">
+                    <select id="tache-priorite" name="tache-priorite" required>
                         <option value="Basse" selected>Basse</option>
                         <option value="Moyenne">Moyenne</option>
                         <option value="Haute">Haute</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="tache-statut">Statut</label>
-                    <select id="tache-statut" name="tache-statut">
+                    <label for="tache-statut" class="required-label">Statut</label>
+                    <select id="tache-statut" name="tache-statut" required>
                         <option value="À faire" selected>À faire</option>
                         <option value="En cours">En cours</option>
                         <option value="En attente">En attente</option>
@@ -2109,20 +2109,20 @@ $(document).ready(function () {
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label for="tache-assigne">Assigné à</label>
-                    <select id="tache-assigne" name="tache-assigne">
+                    <label for="tache-assigne" class="required-label">Assigné à</label>
+                    <select id="tache-assigne" name="tache-assigne" required>
                         <option value="">Sélectionner un technicien</option>
                         <!-- Les utilisateurs seront chargés dynamiquement -->
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="tache-date-limite">Date limite</label>
-                    <input type="date" id="tache-date-limite" name="tache-date-limite">
+                    <label for="tache-date-limite" class="required-label">Date limite</label>
+                    <input type="date" id="tache-date-limite" name="tache-date-limite" required>
                 </div>
             </div>
             <div class="form-group">
-                <label for="tache-service">Service concerné</label>
-                <select id="tache-service" name="tache-service">
+                <label for="tache-service" class="required-label">Service concerné</label>
+                <select id="tache-service" name="tache-service" required>
                     <option value="">Sélectionner un service</option>
                     <!-- Les services seront chargés dynamiquement -->
                 </select>
@@ -2263,6 +2263,10 @@ $(document).ready(function () {
 
         // Recharger les selects selon le contexte
         setTimeout(function() {
+            // Date limite par défaut = date du jour lors de la création d'une tâche.
+            if (context === 'taches' && mode === 'add') {
+                $('#tache-date-limite').val(new Date().toISOString().slice(0, 10));
+            }
             if (context === 'materiel') {
                 loadServicesInSelects();
                 loadUsersInSelects();
@@ -2839,6 +2843,13 @@ $(document).ready(function () {
     function quickUpdateTache(tache, changes) {
         const updated = Object.assign({}, tache, changes);
         const updatedByLogin = localStorage.getItem('user_login') || '';
+
+        // Champs rendus obligatoires : on garantit des valeurs par défaut pour les
+        // actions rapides (prendre en charge, terminer, glisser-déposer Kanban) afin
+        // d'éviter de bloquer la modification de tâches existantes incomplètes.
+        const todayStr = new Date().toISOString().slice(0, 10);
+        updated.assigne_a = updated.assigne_a || localStorage.getItem('user_name') || '';
+        updated.date_limite = updated.date_limite ? updated.date_limite.slice(0, 10) : todayStr;
 
         $.ajax({
             url: '../backend/api/taches.php?action=update',
@@ -3473,6 +3484,15 @@ $(document).ready(function () {
 
         const $form = $(this);
         if ($form.data('savePending') || $('#modal-save').prop('disabled')) {
+            return;
+        }
+
+        // Validation des champs obligatoires : le bouton "Enregistrer" déclenche un
+        // trigger('submit') qui court-circuite la validation native du navigateur, on
+        // vérifie donc explicitement l'état de validité du formulaire (Titre, Statut,
+        // Assigné à, Date limite, Service concerné).
+        if (!this.checkValidity()) {
+            this.reportValidity();
             return;
         }
 

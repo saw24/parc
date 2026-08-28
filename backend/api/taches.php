@@ -62,14 +62,16 @@ switch ($actions) {
         $service_concerne = isset($_POST['service_concerne']) ? $_POST['service_concerne'] : '';
         $motif_attente = isset($_POST['motif_attente']) ? $_POST['motif_attente'] : '';
         $date_relance = isset($_POST['date_relance']) && !empty($_POST['date_relance']) ? $_POST['date_relance'] : null;
-        $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : null;
+        // Date limite : par défaut la date du jour si non renseignée.
+        $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : date('Y-m-d');
         $actions = isset($_POST['actions']) ? $_POST['actions'] : '';
         $created_by_login = isset($_POST['created_by_login']) ? $_POST['created_by_login'] : '';
         $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : '';
-        // Validation
-        if (empty($titre) || empty($priorite) || empty($statut)) {
+        // Validation : le titre, le statut, l'assigné à, la date limite et le service
+        // concerné sont obligatoires (la priorité conserve son défaut existant).
+        if (empty($titre) || empty($priorite) || empty($statut) || empty($assigne_a) || empty($date_limite) || empty($service_concerne)) {
             http_response_code(400);
-            echo json_encode(['error' => 'Le titre, la priorité et le statut sont requis.']);
+            echo json_encode(['error' => 'Le titre, la priorité, le statut, l\u2019assigné à, la date limite et le service concerné sont requis.']);
             exit();
         }
         // Statut "En attente" : le motif d'attente et la date de relance sont exigés,
@@ -141,13 +143,16 @@ switch ($actions) {
         $service_concerne = isset($_POST['service_concerne']) ? $_POST['service_concerne'] : '';
         $motif_attente = isset($_POST['motif_attente']) ? $_POST['motif_attente'] : '';
         $date_relance = isset($_POST['date_relance']) && !empty($_POST['date_relance']) ? $_POST['date_relance'] : null;
-        $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : null;
+        // Date limite : par défaut la date du jour si non renseignée.
+        $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : date('Y-m-d');
         $actions = isset($_POST['actions']) ? $_POST['actions'] : '';
         $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
 
-        if (empty($titre) || empty($priorite) || empty($statut)) {
+        // Validation : le titre, le statut, l'assigné à, la date limite et le service
+        // concerné sont obligatoires.
+        if (empty($titre) || empty($priorite) || empty($statut) || empty($assigne_a) || empty($date_limite) || empty($service_concerne)) {
             http_response_code(400);
-            echo json_encode(['error' => 'Le titre, la priorité et le statut sont requis.']);
+            echo json_encode(['error' => 'Le titre, la priorité, le statut, l\u2019assigné à, la date limite et le service concerné sont requis.']);
             exit();
         }
         // Statut "En attente" : le motif d'attente et la date de relance sont exigés.

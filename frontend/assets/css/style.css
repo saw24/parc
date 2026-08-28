@@ -943,6 +943,14 @@ tbody tr:hover {
   font-size: 0.85rem;
   color: var(--color-text);
 }
+/* Astérisque rouge signalant un champ obligatoire ("fiche tâche") : affiché
+   juste à côté du libellé, pour attirer l'attention à la saisie. */
+.form-group label.required-label::after {
+  content: "*";
+  color: var(--color-danger);
+  font-weight: 700;
+  line-height: 1;
+}
 .form-group input,
 .form-group select,
 .form-group textarea {
