@@ -792,6 +792,20 @@ $(document).ready(function () {
     // NOUVELLE LOGIQUE POUR LE MATERIEL
     // =================================================================
 
+    // Formate une date (YYYY-MM-DD ou timestamp) au format jj/mm/aaaa, ou '-' si absente.
+    // Le parsing manuel des chaînes YYYY-MM-DD évite le décalage de fuseau horaire de new Date().
+    function formatDateFr(value) {
+        if (!value) {
+            return '-';
+        }
+        const dateOnly = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+        if (dateOnly) {
+            return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+        }
+        const parsed = new Date(value);
+        return isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString('fr-FR');
+    }
+
     // Fonction pour charger et afficher le matériel depuis l'API
     function loadMateriel() {
          const userRole = localStorage.getItem('user_role');
@@ -825,11 +839,14 @@ $(document).ready(function () {
                         ? new Date(item.date_derniere_affect).toLocaleDateString('fr-FR')
                         : '-';
 
+                    const dateAchat = formatDateFr(item.date_achat);
+
                     const row = `
                         <tr>
                             <td>${item.type}</td>
                             <td>${item.marque} ${item.modele}</td>
                             <td>${item.num_serie}</td>
+                            <td>${dateAchat}</td>
                             <td>${item.utilisateur_assigne || '-'}</td>
                             <td>${item.service_affecte || '-'}</td>
                             <td>${dateDerniereAffect}</td>
@@ -850,7 +867,7 @@ $(document).ready(function () {
             },
             error: function (xhr, status, error) {
                 console.error("Erreur lors du chargement du matériel:", error);
-                $('#materiel-table tbody').html('<tr><td colspan="8" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
+                $('#materiel-table tbody').html('<tr><td colspan="9" class="table-error"><i class="fas fa-triangle-exclamation"></i>Erreur de chargement des données.</td></tr>');
             }
         });
     }
@@ -967,8 +984,8 @@ $(document).ready(function () {
             const row = $(this);
             const rowText = row.text().toLowerCase();
             const rowType = row.find('td:nth-child(1)').text();
-            const rowStatut = row.find('td:nth-child(7) span').text().trim();
-            const rowService = row.find('td:nth-child(5)').text();
+            const rowStatut = row.find('td:nth-child(8) span').text().trim();
+            const rowService = row.find('td:nth-child(6)').text();
 
             const textMatch = rowText.includes(searchText);
             const typeMatch = !selectedType || rowType === selectedType;

@@ -9,7 +9,7 @@ require_once __DIR__ . '/env.php';
 // accessible en HTTP, quelle que soit la config du serveur). On retombe sur
 // le .env à la racine du projet si le premier est absent (portabilité vers
 // une autre machine / un autre déploiement).
-$env = load_env('/Applications/MAMP/parc-secrets/.env');
+$env = load_env('/Users/saw24/mes_fichiers_env/taches/.env');
 if (empty($env)) {
     $env = load_env(__DIR__ . '/../../.env');
 }
@@ -22,7 +22,11 @@ $username = $env['DB_USER']     ?? 'saw24';
 $password = $env['DB_PASSWORD'] ?? 'saw24';
 
 // Création de la chaîne de connexion (DSN) PostgreSQL
-$dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
+// gssencmode=disable : libpq 18 tente par défaut une négociation GSS-encryption
+// (Kerberos). Sous php-fpm, le worker tourne en tant que _www (utilisateur système
+// sans session de connexion) et cette négociation fait planter le process en
+// SIGSEGV (CFPreferences / CoreFoundation). On la désactive donc explicitement.
+$dsn = "pgsql:host=$host;port=$port;dbname=$dbname;gssencmode=disable";
 
 // Options pour PDO
 $options = [
