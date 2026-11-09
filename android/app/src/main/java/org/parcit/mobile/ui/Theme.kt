@@ -15,12 +15,12 @@ private val Claire = lightColorScheme(
     secondary = Color(0xFF475569), onSecondary = Color.White,
     secondaryContainer = Color(0xFFE2E8F0), onSecondaryContainer = Color(0xFF1E293B),
     tertiary = Color(0xFF0F766E), tertiaryContainer = Color(0xFFCCFBF1), onTertiaryContainer = Color(0xFF042F2E),
-    background = Color(0xFFF6F8FC), onBackground = Color(0xFF0F172A),
-    surface = Color(0xFFF6F8FC), onSurface = Color(0xFF0F172A),
+    background = Color(0xFFE7EDF7), onBackground = Color(0xFF0F172A),
+    surface = Color(0xFFE7EDF7), onSurface = Color(0xFF0F172A),
     surfaceVariant = Color(0xFFEAEFF7), onSurfaceVariant = Color(0xFF5B6678),
     surfaceContainerLowest = Color.White, surfaceContainerLow = Color.White,
-    surfaceContainer = Color(0xFFFFFFFF), surfaceContainerHigh = Color(0xFFEEF2F8), surfaceContainerHighest = Color(0xFFE6ECF5),
-    outline = Color(0xFFB8C2D3), outlineVariant = Color(0xFFE1E7F0),
+    surfaceContainer = Color(0xFFFFFFFF), surfaceContainerHigh = Color(0xFFD8E2F2), surfaceContainerHighest = Color(0xFFCCD9EE),
+    outline = Color(0xFFA9B6CC), outlineVariant = Color(0xFFD3DDEC),
     error = Color(0xFFDC2626), onError = Color.White, errorContainer = Color(0xFFFEE2E2), onErrorContainer = Color(0xFF7F1D1D),
 )
 

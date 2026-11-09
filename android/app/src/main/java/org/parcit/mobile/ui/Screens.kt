@@ -42,10 +42,11 @@ fun Root(vm: AppViewModel) {
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snack) },
         bottomBar = {
-            if (u != null && vm.ecran.principal) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+            if (u != null && vm.ecran.principal) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 @Composable fun onglet(e: Ecran, icone: ImageVector, texte: String, badge: Int = 0) = NavigationBarItem(
                     vm.ecran == e, { vm.aller(e) },
                     { BadgedBox({ if (badge > 0) Badge { Text("$badge") } }) { Icon(icone, texte) } }, label = { Text(texte) },
+                    colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer),
                 )
                 onglet(Ecran.Liste, Icons.Rounded.Build, "Mes pannes")
                 if (u.voitInterventions) onglet(Ecran.Interventions, Icons.AutoMirrored.Rounded.Assignment, "Interventions")
