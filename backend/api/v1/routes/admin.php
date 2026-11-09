@@ -149,7 +149,7 @@ route('GET', 'utilisateurs', function (array $c): void {
     if (!has_any_permission($u, $detail ? ['utilisateur.lister', 'utilisateur.gerer'] : ['utilisateur.lister', 'utilisateur.gerer', 'materiel.creer', 'materiel.modifier'])) {
         api_fail(403, 'interdit', 'Permission manquante : utilisateur.lister');
     }
-    $where = ['NOT u.est_file_commune'];
+    $where = !empty($c['query']['inclure_file']) && $detail ? [] : ['NOT u.est_file_commune'];
     $args = [];
     if (!$detail || empty($c['query']['inclure_inactifs'])) { $where[] = 'u.actif'; }
     if (!empty($c['query']['q'])) {
@@ -157,11 +157,27 @@ route('GET', 'utilisateurs', function (array $c): void {
         $m = '%' . addcslashes(mb_substr((string) $c['query']['q'], 0, 100), '%_\\') . '%';
         array_push($args, $m, $m);
     }
-    $st = $c['pdo']->prepare(V1_UTILISATEUR_SELECT . ' WHERE ' . implode(' AND ', $where) . ' ORDER BY u.nom');
+    $st = $c['pdo']->prepare(V1_UTILISATEUR_SELECT . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . ' ORDER BY u.nom');
     $st->execute($args);
-    api_data(array_map(fn($r) => $detail ? v1_utilisateur_json($r)
+    $rows = $st->fetchAll();
+    $eff = [];
+    if ($detail && !empty($c['query']['efficacite']) && has_permission($u, 'utilisateur.gerer')) {
+        // Jauge d'efficacité par agent (même calcul que l'ancien écran) : Terminées / (Terminées + En retard) sur la fenêtre configurée.
+        $params = get_parametres($c['pdo']);
+        $e = $c['pdo']->prepare("SELECT assigne_a, SUM(CASE WHEN statut = 'Terminé' THEN 1 ELSE 0 END) AS resolues,
+                SUM(CASE WHEN statut NOT IN ('Terminé', 'Annulé', 'En attente') AND date_limite IS NOT NULL AND date_limite < CURRENT_DATE THEN 1 ELSE 0 END) AS en_retard
+            FROM t_taches WHERE date_creation >= NOW() - (? || ' days')::interval GROUP BY assigne_a");
+        $e->execute([(int) $params['efficacite_fenetre_jours']]);
+        $stats = [];
+        foreach ($e->fetchAll() as $x) { $stats[$x['assigne_a']] = $x; }
+        foreach ($rows as $r) {
+            $pct = compute_efficacite_pct((int) ($stats[$r['nom']]['resolues'] ?? 0), (int) ($stats[$r['nom']]['en_retard'] ?? 0));
+            $eff[(int) $r['id']] = ['pct' => $pct, 'zone' => efficacite_zone($pct, $params)];
+        }
+    }
+    api_data(array_map(fn($r) => $detail ? v1_utilisateur_json($r) + (isset($eff[(int) $r['id']]) ? ['efficacite' => $eff[(int) $r['id']]] : [])
         : ['id' => (int) $r['id'], 'nom' => $r['nom'], 'service' => $r['service_id'] ? ['id' => (int) $r['service_id'], 'nom' => $r['service']] : null],
-        $st->fetchAll()));
+        $rows));
 });
 
 route('GET', 'utilisateurs/{id}', function (array $c): void {
@@ -509,5 +525,67 @@ route('DELETE', 'services/{id}', function (array $c): void {
             ['nb_utilisateurs' => (int) $s['nb_utilisateurs'], 'nb_materiels' => (int) $s['nb_materiels']]);
     }
     $pdo->prepare("DELETE FROM t_services WHERE id = ?")->execute([$id]);
+    api_data(['supprime' => true]);
+});
+
+// ---------------------------------------------------------------- Types de matériel
+
+route('GET', 'types_materiel', function (array $c): void {
+    require_permission_v1($c['user'], 'referentiel.voir');
+    api_data(array_map(fn($r) => ['id' => (int) $r['id'], 'nom' => $r['type']],
+        $c['pdo']->query("SELECT id, type FROM t_type_materiel ORDER BY type")->fetchAll()));
+});
+
+route('POST', 'types_materiel', function (array $c): void {
+    require_permission_v1($c['user'], 'referentiel.gerer');
+    $nom = api_str($c['body'], 'nom', true, 100);
+    $dup = $c['pdo']->prepare("SELECT 1 FROM t_type_materiel WHERE lower(type) = lower(?)");
+    $dup->execute([$nom]);
+    if ($dup->fetchColumn()) { api_fail(409, 'nom_existant', 'Ce type existe déjà.'); }
+    try {
+        $st = $c['pdo']->prepare("INSERT INTO t_type_materiel (type) VALUES (?) RETURNING id");
+        $st->execute([$nom]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23505') { api_fail(409, 'nom_existant', 'Ce type existe déjà.'); }
+        throw $e;
+    }
+    api_data(['id' => (int) $st->fetchColumn(), 'nom' => $nom], [], 201);
+});
+
+route('PATCH', 'types_materiel/{id}', function (array $c): void {
+    $pdo = $c['pdo']; $id = $c['params']['id'];
+    require_permission_v1($c['user'], 'referentiel.gerer');
+    $nom = api_str($c['body'], 'nom', true, 100);
+    $dup = $pdo->prepare("SELECT 1 FROM t_type_materiel WHERE lower(type) = lower(?) AND id <> ?");
+    $dup->execute([$nom, $id]);
+    if ($dup->fetchColumn()) { api_fail(409, 'nom_existant', 'Un autre type porte déjà ce nom.'); }
+    $st = $pdo->prepare("SELECT type FROM t_type_materiel WHERE id = ?");
+    $st->execute([$id]);
+    $avant = $st->fetchColumn();
+    if ($avant === false) { api_fail(404, 'introuvable', 'Type introuvable.'); }
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("UPDATE t_type_materiel SET type = ? WHERE id = ?")->execute([$nom, $id]);
+        $pdo->prepare("UPDATE t_materiel SET type = ? WHERE type = ?")->execute([$nom, $avant]);   // le matériel mémorise le nom
+        $pdo->commit();
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        if ($e->getCode() === '23505') { api_fail(409, 'nom_existant', 'Un autre type porte déjà ce nom.'); }
+        throw $e;
+    }
+    api_data(['id' => $id, 'nom' => $nom]);
+});
+
+route('DELETE', 'types_materiel/{id}', function (array $c): void {
+    $pdo = $c['pdo']; $id = $c['params']['id'];
+    require_permission_v1($c['user'], 'referentiel.supprimer');
+    $st = $pdo->prepare("SELECT type, (SELECT COUNT(*) FROM t_materiel m WHERE m.type = t.type) AS n FROM t_type_materiel t WHERE id = ?");
+    $st->execute([$id]);
+    $t = $st->fetch();
+    if (!$t) { api_fail(404, 'introuvable', 'Type introuvable.'); }
+    if ((int) $t['n'] > 0) {
+        api_fail(409, 'type_utilise', "Ce type est utilisé par {$t['n']} matériel(s) et ne peut pas être supprimé.");
+    }
+    $pdo->prepare("DELETE FROM t_type_materiel WHERE id = ?")->execute([$id]);
     api_data(['supprime' => true]);
 });

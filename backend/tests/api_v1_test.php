@@ -49,6 +49,7 @@ function nettoyer(PDO $pdo, array $comptes, array $rolesTest): void {
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_login_attempts WHERE login LIKE 'zz_v1_%'");
     $pdo->exec("DELETE FROM t_utilisateurs WHERE login LIKE 'zz_v1_new%'");
+    $pdo->exec("DELETE FROM t_type_materiel WHERE type LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_services WHERE nom LIKE 'ZZ_V1_%'");
     $in = implode(',', array_fill(0, count($comptes), '?'));
     $pdo->prepare("DELETE FROM t_utilisateurs WHERE login IN ($in)")->execute(array_map(fn($c) => $c[0], array_values($comptes)));
@@ -395,6 +396,31 @@ try {
     check('paramètre inconnu → 422', api('PATCH', 'parametres', ['nimporte' => 'x'], $A('admin'))[0] === 422);
     $r = api('PATCH', 'parametres', ['sms_actif' => false, 'sms_url' => '', 'sms_jeton' => null], $A('admin'));
     check('paramètres remis à zéro', $r[0] === 200 && $r[1]['data']['sms_jeton_configure'] === false);
+
+    echo "Types de matériel, liste enrichie, actions menées\n";
+    check('types : lecture avec referentiel.voir', api('GET', 'types_materiel', null, $A('gest'))[0] === 200);
+    check('types : agent refusé', api('GET', 'types_materiel', null, $A('agent'))[0] === 403);
+    $r = api('POST', 'types_materiel', ['nom' => 'ZZ_V1_TYPE'], $A('gest'));
+    $tid = $r[1]['data']['id'] ?? 0;
+    check('type créé', $r[0] === 201 && $tid > 0);
+    check('type en double → 409', api('POST', 'types_materiel', ['nom' => 'ZZ_V1_TYPE'], $A('gest'))[0] === 409);
+    $pdo->prepare("INSERT INTO t_materiel (type, statut, num_serie) VALUES ('ZZ_V1_TYPE', 'En service', 'ZZ_V1_TY')")->execute();
+    check('type renommé : le matériel suit', api('PATCH', "types_materiel/$tid", ['nom' => 'ZZ_V1_TYPE2'], $A('gest'))[0] === 200
+        && $pdo->query("SELECT type FROM t_materiel WHERE num_serie = 'ZZ_V1_TY'")->fetchColumn() === 'ZZ_V1_TYPE2');
+    check('type utilisé : suppression refusée', api('DELETE', "types_materiel/$tid", null, $A('gest'))[0] === 409);
+    $pdo->exec("DELETE FROM t_materiel WHERE num_serie = 'ZZ_V1_TY'");
+    check('type supprimé', api('DELETE', "types_materiel/$tid", null, $A('gest'))[0] === 200);
+    $r = api('GET', 'utilisateurs?detail=1&inclure_inactifs=1&inclure_file=1&efficacite=1', null, $A('gest'));
+    check('liste : file « Service IT » incluse, efficacité présente', $r[0] === 200 && in_array(true, array_column($r[1]['data'], 'compte_technique'), true) && array_key_exists('efficacite', $r[1]['data'][0]));
+    $r = api('GET', 'utilisateurs?detail=1&efficacite=1', null, $A('tech'));
+    check('technicien sans lister/gerer : refus', $r[0] === 403);
+    $r = api('POST', 'taches', ['titre' => 'ZZ_V1_Actions', 'service_id' => $svc], $A('agent'));
+    $aid = $r[1]['data']['id'];
+    check('actions menées : réservées à l\'équipe', api('PATCH', "taches/$aid", ['actions_texte' => 'x'], $A('agent'))[0] === 403);
+    $r = api('PATCH', "taches/$aid", ['actions_texte' => 'redémarrage du poste'], $A('gest'));
+    check('actions menées : enregistrées', $r[0] === 200 && $r[1]['data']['actions_texte'] === 'redémarrage du poste');
+    api('DELETE', "taches/$aid", null, $A('gest'));
+
 
     echo "Pont avec la session du site web\n";
     $web = bin2hex(random_bytes(32));

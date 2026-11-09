@@ -13,6 +13,7 @@ require_once __DIR__ . '/../middleware/auth.php';
 require_once __DIR__ . '/../lib/taches.php';
 
 $base = rtrim($argv[1] ?? 'http://localhost/parc/backend/api', '/');
+$v1 = $base . '/v1/index.php';
 $ok = 0; $ko = 0;
 function check(string $nom, bool $cond, string $detail = ''): void {
     global $ok, $ko;
@@ -27,6 +28,18 @@ function call(string $method, string $url, array $data = [], ?array $auth = null
     $body = curl_exec($ch);
     $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     return [$code, json_decode((string) $body, true), (string) $body];
+}
+
+/** Appel de la v1 avec la session du site (JSON). */
+function web(string $method, string $route, ?array $body = null, ?array $auth = null): array {
+    global $v1;
+    $ch = curl_init("$v1/$route");
+    $h = ['Content-Type: application/json'];
+    if ($auth) { $h[] = 'X-Session-Token: ' . $auth['token']; $h[] = 'X-User-Id: ' . $auth['id']; }
+    curl_setopt_array($ch, [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $h, CURLOPT_TIMEOUT => 15]);
+    if ($body !== null) { curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body)); }
+    $raw = curl_exec($ch);
+    return [(int) curl_getinfo($ch, CURLINFO_HTTP_CODE), json_decode((string) $raw, true), (string) $raw];
 }
 
 $pwd = 'Zz-' . bin2hex(random_bytes(6));
@@ -78,9 +91,9 @@ try {
     }
 
     echo "Authentification\n";
-    [$c] = call('GET', "$base/taches.php?action=read");
+    [$c] = web('GET', 'taches');
     check('sans jeton → 401', $c === 401, "(reçu $c)");
-    [$c] = call('GET', "$base/taches.php?action=read", [], ['token' => 'x', 'id' => $ids['admin']]);
+    [$c] = web('GET', 'taches', null, ['token' => 'x', 'id' => $ids['admin']]);
     check('jeton invalide → 401', $c === 401, "(reçu $c)");
 
     foreach ($comptes as $cle => [$login]) {
@@ -97,58 +110,57 @@ try {
     check('le hash SHA-256 est stocké', $stocke === hash('sha256', $auth['admin']['token']));
 
     echo "Rôle inconnu : aucun accès\n";
-    foreach (['taches.php?action=read', 'materiel.php?action=read', 'services.php?action=read',
-              'type_materiel.php?action=read', 'dashboard.php?action=stats', 'utilisateurs.php?action=read'] as $ep) {
-        [$c] = call('GET', "$base/$ep", [], $auth['autre']);
-        check("GET $ep → 403", $c === 403, "(reçu $c)");
+    foreach (['taches', 'materiel', 'services', 'types_materiel', 'utilisateurs?detail=1'] as $ep) {
+        [$c] = web('GET', $ep, null, $auth['autre']);
+        check("GET v1 $ep → 403", $c === 403, "(reçu $c)");
     }
-    [$c] = call('GET', "$base/utilisateurs.php?action=read&id={$ids['admin']}", [], $auth['autre']);
+    [$c] = call('GET', "$base/dashboard.php?action=stats", [], $auth['autre']);
+    check('GET dashboard.php?action=stats → 403', $c === 403, "(reçu $c)");
+    [$c] = web('GET', "utilisateurs/{$ids['admin']}", null, $auth['autre']);
     check('lire la fiche d\'un autre utilisateur → 403', $c === 403, "(reçu $c)");
-    [$c] = call('GET', "$base/utilisateurs.php?action=read&id={$ids['autre']}", [], $auth['autre']);
-    check('lire sa propre fiche → 200', $c === 200, "(reçu $c)");
+    [$c, $j] = web('GET', 'me', null, $auth['autre']);
+    check('lire sa propre fiche → 200', $c === 200 && ($j['data']['id'] ?? 0) === $ids['autre'], "(reçu $c)");
 
     echo "Technicien : pas de suppression ni de gestion des comptes\n";
-    $svc = ['nom' => 'ZZ_TEST_SVC', 'description' => 't'];
-    [$c, $j] = call('POST', "$base/services.php?action=create", $svc, $auth['admin']);
-    check('admin crée un service', $c === 200 || $c === 201, "(reçu $c)");
+    [$c, $j] = web('POST', 'services', ['nom' => 'ZZ_TEST_SVC', 'description' => 't'], $auth['admin']);
+    check('admin crée un service', $c === 201, "(reçu $c)");
     $svcId = (int) $pdo->query("SELECT id FROM t_services WHERE nom = 'ZZ_TEST_SVC'")->fetchColumn();
-    [$c] = call('POST', "$base/services.php?action=delete", ['id' => $svcId], $auth['tech']);
+    [$c] = web('DELETE', "services/$svcId", null, $auth['tech']);
     check('technicien : suppression service → 403', $c === 403, "(reçu $c)");
-    [$c] = call('POST', "$base/utilisateurs.php?action=create", ['nom' => 'x', 'login' => 'zz_test_x', 'role' => 'Administrateur', 'mot_de_passe' => 'abcdefgh'], $auth['tech']);
+    [$c] = web('POST', 'utilisateurs', ['nom' => 'x', 'login' => 'zz_test_x', 'role' => 'Administrateur', 'mot_de_passe' => 'abcdefghij'], $auth['tech']);
     check('technicien : création d\'utilisateur → 403', $c === 403, "(reçu $c)");
 
     echo "Tâches : propriété et prise en charge\n";
-    $t = ['priorite' => 'Moyenne', 'service_concerne' => 'ZZ_TEST_SVC', 'date_limite' => date('Y-m-d'), 'description' => '', 'motif_cause' => ''];
-    [$c] = call('POST', "$base/taches.php?action=create", $t + ['titre' => 'ZZ_TEST_A', 'statut' => 'En cours', 'assigne_a' => 'ZZ zz_test_tech',
-        'created_by_login' => 'usurpateur', 'updated_by_login' => 'usurpateur'], $auth['admin']);
-    check('admin crée une tâche assignée au technicien', $c === 200, "(reçu $c)");
-    [$c] = call('POST', "$base/taches.php?action=create", $t + ['titre' => 'ZZ_TEST_B', 'statut' => 'En cours', 'assigne_a' => 'ZZ zz_test_tech2'], $auth['admin']);
-    [$c] = call('POST', "$base/taches.php?action=create", $t + ['titre' => 'ZZ_TEST_C', 'statut' => 'À faire', 'assigne_a' => 'ZZ zz_test_tech2'], $auth['admin']);
-    $rows = $pdo->query("SELECT id, titre, created_by_login, updated_by_login FROM t_taches WHERE titre LIKE 'ZZ_TEST_%'")->fetchAll();
+    $t = ['priorite' => 'Moyenne', 'service_id' => $svcId, 'description' => ''];
+    [$c] = web('POST', 'taches', $t + ['titre' => 'ZZ_TEST_A', 'assigne_id' => $ids['tech']], $auth['admin']);
+    check('admin crée une tâche assignée au technicien', $c === 201, "(reçu $c)");
+    web('POST', 'taches', $t + ['titre' => 'ZZ_TEST_B', 'assigne_id' => $ids['tech2']], $auth['admin']);
+    web('POST', 'taches', $t + ['titre' => 'ZZ_TEST_C'], $auth['admin']);
+    $rows = $pdo->query("SELECT id, titre, created_by_login, updated_by_login, source FROM t_taches WHERE titre LIKE 'ZZ_TEST_%'")->fetchAll();
     foreach ($rows as $r) { $tacheIds[$r['titre']] = (int) $r['id']; }
     check('le login d\'audit vient de la session, pas du client',
-        ($rows[0]['created_by_login'] ?? '') === 'zz_test_admin' && ($rows[0]['updated_by_login'] ?? '') === 'zz_test_admin',
+        ($rows[0]['created_by_login'] ?? '') === 'zz_test_admin' && ($rows[0]['updated_by_login'] ?? '') === 'zz_test_admin' && ($rows[0]['source'] ?? '') === 'web',
         '(reçu ' . json_encode($rows[0] ?? null) . ')');
 
-    $maj = fn(string $titre, string $statut, string $assigne) => $t + ['id' => $tacheIds[$titre], 'titre' => $titre, 'statut' => $statut, 'assigne_a' => $assigne];
-    [$c] = call('POST', "$base/taches.php?action=update", $maj('ZZ_TEST_A', 'Terminé', 'ZZ zz_test_tech'), $auth['tech']);
+    $statut = fn(string $titre, string $st, string $cle) => web('POST', "taches/{$tacheIds[$titre]}/statut", ['statut' => $st], $auth[$cle])[0];
+    $c = $statut('ZZ_TEST_A', 'Terminé', 'tech');
     check('technicien modifie sa propre tâche → 200', $c === 200, "(reçu $c)");
-    [$c] = call('POST', "$base/taches.php?action=update", $maj('ZZ_TEST_B', 'Terminé', 'ZZ zz_test_tech2'), $auth['tech']);
+    $c = $statut('ZZ_TEST_B', 'Terminé', 'tech');
     check('technicien modifie la tâche d\'un autre → 403', $c === 403, "(reçu $c)");
-    [$c] = call('POST', "$base/taches.php?action=update", $maj('ZZ_TEST_C', 'En cours', 'ZZ zz_test_tech2'), $auth['tech']);
+    [$c] = web('POST', "taches/{$tacheIds['ZZ_TEST_C']}/prendre", [], $auth['tech']);
     check('technicien prend en charge une tâche « À faire » → 200', $c === 200, "(reçu $c)");
-    [$c] = call('POST', "$base/taches.php?action=update", $maj('ZZ_TEST_B', 'Terminé', 'ZZ zz_test_tech2'), $auth['autre']);
-    check('rôle inconnu : modification → 403', $c === 403, "(reçu $c)");
-    [$c] = call('POST', "$base/taches.php?action=delete", ['id' => $tacheIds['ZZ_TEST_B']], $auth['tech']);
+    $c = $statut('ZZ_TEST_B', 'Terminé', 'autre');
+    check('rôle inconnu : modification → 403/404', in_array($c, [403, 404], true), "(reçu $c)");
+    [$c] = web('DELETE', "taches/{$tacheIds['ZZ_TEST_B']}", null, $auth['tech']);
     check('technicien : suppression de tâche → 403', $c === 403, "(reçu $c)");
-    [$c] = call('POST', "$base/taches.php?action=update", array_merge($maj('ZZ_TEST_B', 'Terminé', 'ZZ zz_test_tech2'), ['id' => 99999999]), $auth['admin']);
+    [$c] = web('POST', 'taches/99999999/statut', ['statut' => 'Terminé'], $auth['admin']);
     check('tâche inexistante → 404', $c === 404, "(reçu $c)");
 
     echo "Comptes : garde-fous\n";
-    [$c] = call('POST', "$base/utilisateurs.php?action=delete", ['id' => $ids['admin']], $auth['admin']);
-    check('admin ne peut pas se supprimer → 400', $c === 400, "(reçu $c)");
-    [$c] = call('POST', "$base/utilisateurs.php?action=create", ['nom' => 'ZZ x', 'login' => 'zz_test_x', 'role' => 'SuperRoot', 'mot_de_passe' => 'abcdefgh1'], $auth['admin']);
-    check('rôle arbitraire refusé → 400', $c === 400, "(reçu $c)");
+    [$c] = web('DELETE', "utilisateurs/{$ids['admin']}", null, $auth['admin']);
+    check('admin ne peut pas se supprimer → 422', $c === 422, "(reçu $c)");
+    [$c] = web('POST', 'utilisateurs', ['nom' => 'ZZ x', 'login' => 'zz_test_x', 'role' => 'SuperRoot', 'mot_de_passe' => 'abcdefgh1j'], $auth['admin']);
+    check('rôle arbitraire refusé → 422', $c === 422, "(reçu $c)");
 
     echo "Limitation des tentatives de connexion\n";
     $dernier = 0;
@@ -160,14 +172,23 @@ try {
     check('un autre compte n\'est pas bloqué', $c === 200, "(reçu $c)");
 
     echo "Administrateur et technicien : les écrans existants fonctionnent toujours\n";
-    foreach (['dashboard.php?action=stats', 'dashboard.php?action=parc_lifecycle', 'utilisateurs.php?action=read', 'parametres.php?action=read',
-              'services.php?action=read', 'type_materiel.php?action=read', 'materiel.php?action=read', 'taches.php?action=read'] as $ep) {
+    foreach (['dashboard.php?action=stats', 'dashboard.php?action=parc_lifecycle', 'parametres.php?action=read'] as $ep) {
         [$c] = call('GET', "$base/$ep", [], $auth['admin']);
         check("admin GET $ep → 200", $c === 200, "(reçu $c)");
     }
-    foreach (['dashboard.php?action=stats', 'utilisateurs.php?action=read', 'services.php?action=read', 'materiel.php?action=read', 'taches.php?action=read'] as $ep) {
-        [$c] = call('GET', "$base/$ep", [], $auth['tech']);
-        check("technicien GET $ep → 200", $c === 200, "(reçu $c)");
+    foreach (['utilisateurs?detail=1', 'services', 'types_materiel', 'materiel', 'taches', 'roles', 'permissions', 'parametres'] as $ep) {
+        [$c] = web('GET', $ep, null, $auth['admin']);
+        check("admin GET v1 $ep → 200", $c === 200, "(reçu $c)");
+    }
+    [$c] = call('GET', "$base/dashboard.php?action=stats", [], $auth['tech']);
+    check('technicien GET dashboard.php?action=stats → 200', $c === 200, "(reçu $c)");
+    foreach (['utilisateurs?detail=1', 'services', 'materiel', 'taches'] as $ep) {
+        [$c] = web('GET', $ep, null, $auth['tech']);
+        check("technicien GET v1 $ep → 200", $c === 200, "(reçu $c)");
+    }
+    foreach (['taches.php?action=read', 'services.php?action=read', 'materiel.php?action=read', 'utilisateurs.php?action=read'] as $ep) {
+        [$c] = call('GET', "$base/$ep", [], $auth['admin']);
+        check("ancien endpoint $ep → 410 (remplacé par la v1)", $c === 410, "(reçu $c)");
     }
     [$c] = call('GET', "$base/parametres.php?action=read", [], $auth['tech']);
     check('technicien : paramètres complets → 403', $c === 403, "(reçu $c)");
@@ -177,25 +198,26 @@ try {
     echo "Agent (déclarant) : file Service IT et visibilité limitée\n";
     $file = tache_file_commune($pdo);
     check('le compte « Service IT » existe', $file !== null);
-    [$c] = call('POST', "$base/taches.php?action=create", $t + ['titre' => 'ZZ_TEST_AGENT1', 'statut' => 'Terminé',
-        'assigne_a' => 'ZZ zz_test_tech', 'priorite' => 'Haute'], $auth['agent']);
-    check('agent déclare une panne → 200', $c === 200, "(reçu $c)");
+    [$c] = web('POST', 'taches', $t + ['titre' => 'ZZ_TEST_AGENT1', 'priorite' => 'Haute'], $auth['agent']);
+    check('agent déclare une panne → 201', $c === 201, "(reçu $c)");
     $ligne = $pdo->query("SELECT * FROM t_taches WHERE titre = 'ZZ_TEST_AGENT1'")->fetch();
-    check('assignée d\'office à Service IT (assigné/statut du client ignorés)',
+    check('assignée d\'office à Service IT, « À faire »',
         ($ligne['assigne_a'] ?? '') === 'Service IT' && ($ligne['statut'] ?? '') === 'À faire' && (int) $ligne['assigne_id'] === $file['id']);
     check('déclarant = agent, source web, référence générée',
         (int) $ligne['declarant_id'] === $ids['agent'] && $ligne['source'] === 'web' && str_starts_with((string) $ligne['reference'], 'T-'));
     check('échéances SLA renseignées (priorité Haute)', $ligne['echeance_prise_en_charge'] !== null && $ligne['echeance_resolution'] !== null);
     $tacheIds['ZZ_TEST_AGENT1'] = (int) $ligne['id'];
-    [$c, $j] = call('GET', "$base/taches.php?action=read", [], $auth['agent']);
-    $titres = array_column(is_array($j) ? $j : [], 'titre');
+    [$c, $j] = web('GET', 'taches', null, $auth['agent']);
+    $titres = array_column($j['data'] ?? [], 'titre');
     check('l\'agent ne voit que ses propres pannes', $c === 200 && $titres === ['ZZ_TEST_AGENT1'], '(reçu ' . json_encode($titres) . ')');
-    [$c] = call('POST', "$base/taches.php?action=update", array_merge($t, ['id' => $tacheIds['ZZ_TEST_AGENT1'], 'titre' => 'ZZ_TEST_AGENT1', 'statut' => 'Terminé', 'assigne_a' => 'Service IT', 'priorite' => 'Haute']), $auth['agent']);
-    check('agent : modifier même sa propre panne via l\'API web → 403', $c === 403, "(reçu $c)");
-    [$c] = call('POST', "$base/taches.php?action=update", $maj('ZZ_TEST_A', 'Terminé', 'ZZ zz_test_tech'), $auth['agent']);
+    [$c] = web('PATCH', "taches/{$tacheIds['ZZ_TEST_AGENT1']}", ['priorite' => 'Basse'], $auth['agent']);
+    check('agent : modifier sa panne tant que « À faire » et non prise → 200', $c === 200, "(reçu $c)");
+    [$c] = web('POST', "taches/{$tacheIds['ZZ_TEST_AGENT1']}/statut", ['statut' => 'Terminé'], $auth['agent']);
+    check('agent : terminer sa propre panne → 403', $c === 403, "(reçu $c)");
+    $c = $statut('ZZ_TEST_A', 'En cours', 'agent');
     check('agent : tâche d\'un autre → 404 (invisible)', $c === 404, "(reçu $c)");
-    [$c] = call('GET', "$base/materiel.php?action=read", [], $auth['agent']);
-    check('agent : liste complète du matériel → 403', $c === 403, "(reçu $c)");
+    [$c, $j] = web('GET', 'materiel', null, $auth['agent']);
+    check('agent : seulement son propre matériel', $c === 200 && count($j['data'] ?? []) === 0, "(reçu $c)");
     [$c, $j] = call('POST', "$base/auth.php?action=login", ['login' => 'zz_test_agent', 'password' => $pwd]);
     check('login renvoie les permissions', in_array('tache.declarer', $j['user']['permissions'] ?? [], true));
 
@@ -203,30 +225,32 @@ try {
     $pdo->exec("INSERT INTO t_services (nom) VALUES ('ZZ_TEST_SVC_A'), ('ZZ_TEST_SVC_B')");
     $svcA = (int) $pdo->query("SELECT id FROM t_services WHERE nom = 'ZZ_TEST_SVC_A'")->fetchColumn();
     $svcB = (int) $pdo->query("SELECT id FROM t_services WHERE nom = 'ZZ_TEST_SVC_B'")->fetchColumn();
-    $nouveau = ['nom' => 'ZZ svc', 'login' => 'zz_test_svc1', 'role' => 'zz_role_agent', 'mot_de_passe' => $pwd, 'email' => 'svc@example.org'];
-    [$c, $j] = call('POST', "$base/utilisateurs.php?action=create", $nouveau + ['service_id' => 999999], $auth['admin']);
-    check('création avec un service inconnu → 400', $c === 400, "(reçu $c)");
-    [$c, $j] = call('POST', "$base/utilisateurs.php?action=create", $nouveau + ['service_id' => (string) $svcA, 'telephone' => '+227 90 11 22 33'], $auth['admin']);
-    $uid = (int) ($j['id'] ?? 0);
-    check('création avec service et téléphone', $c === 200 && $uid > 0, "(reçu $c)");
-    [$c, $j] = call('GET', "$base/utilisateurs.php?action=read&id=$uid", [], $auth['admin']);
-    check('lecture : service_id, nom du service et téléphone', ($j[0]['service_id'] ?? null) == $svcA && ($j[0]['service'] ?? '') === 'ZZ_TEST_SVC_A' && ($j[0]['telephone'] ?? '') === '+227 90 11 22 33');
-    [$c] = call('POST', "$base/utilisateurs.php?action=create", ['login' => 'zz_test_svc2', 'nom' => 'ZZ svc2', 'role' => 'zz_role_agent', 'mot_de_passe' => $pwd, 'telephone' => 'abc'], $auth['admin']);
-    check('téléphone invalide → 400', $c === 400, "(reçu $c)");
-    $maj = ['id' => $uid, 'nom' => 'ZZ svc', 'login' => 'zz_test_svc1', 'role' => 'zz_role_agent', 'email' => 'svc@example.org'];
-    call('POST', "$base/utilisateurs.php?action=update", $maj, $auth['admin']);
-    $lire = fn() => call('GET', "$base/utilisateurs.php?action=read&id=$uid", [], $auth['admin'])[1][0];
-    check('mise à jour sans service_id : service conservé', $lire()['service_id'] == $svcA && $lire()['telephone'] === '+227 90 11 22 33');
-    call('POST', "$base/utilisateurs.php?action=update", $maj + ['service_id' => (string) $svcB], $auth['admin']);
-    check('changement de service par un administrateur', $lire()['service_id'] == $svcB);
-    call('POST', "$base/utilisateurs.php?action=update", $maj + ['service_id' => ''], $auth['admin']);
-    check('service vidé', $lire()['service_id'] === null);
+    $nouveau = ['nom' => 'ZZ svc', 'login' => 'zz_test_svc1', 'role' => 'zz_role_agent', 'mot_de_passe' => $pwd . 'xx', 'email' => 'svc@example.org'];
+    [$c] = web('POST', 'utilisateurs', $nouveau + ['service_id' => 999999], $auth['admin']);
+    check('création avec un service inconnu → 422', $c === 422, "(reçu $c)");
+    [$c, $j] = web('POST', 'utilisateurs', $nouveau + ['service_id' => $svcA, 'telephone' => '+227 90 11 22 33'], $auth['admin']);
+    $uid = (int) ($j['data']['id'] ?? 0);
+    check('création avec service et téléphone', $c === 201 && $uid > 0, "(reçu $c)");
+    $lire = fn() => web('GET', "utilisateurs/$uid", null, $auth['admin'])[1]['data'];
+    check('lecture : service et téléphone', ($lire()['service']['id'] ?? null) === $svcA && ($lire()['service']['nom'] ?? '') === 'ZZ_TEST_SVC_A' && $lire()['telephone'] === '+227 90 11 22 33');
+    [$c] = web('POST', 'utilisateurs', ['login' => 'zz_test_svc2', 'nom' => 'ZZ svc2', 'role' => 'zz_role_agent', 'mot_de_passe' => $pwd . 'xx', 'telephone' => 'abc'], $auth['admin']);
+    check('téléphone invalide → 422', $c === 422, "(reçu $c)");
+    web('PATCH', "utilisateurs/$uid", ['nom' => 'ZZ svc'], $auth['admin']);
+    check('mise à jour sans service_id : service conservé', ($lire()['service']['id'] ?? null) === $svcA && $lire()['telephone'] === '+227 90 11 22 33');
+    web('PATCH', "utilisateurs/$uid", ['service_id' => $svcB], $auth['admin']);
+    check('changement de service par un administrateur', ($lire()['service']['id'] ?? null) === $svcB);
+    web('PATCH', "utilisateurs/$uid", ['service_id' => null], $auth['admin']);
+    check('service vidé', $lire()['service'] === null);
     $pdo->prepare("UPDATE t_utilisateurs SET service_id = ? WHERE id = ?")->execute([$svcA, $ids['agent']]);
+    [$c] = web('PATCH', "utilisateurs/{$ids['agent']}", ['service_id' => $svcB], $auth['agent']);
+    check('un agent ne peut pas gérer les comptes via la v1 → 403', $c === 403, "(reçu $c)");
     $moi = ['id' => $ids['agent'], 'nom' => 'ZZ zz_test_agent', 'login' => 'zz_test_agent', 'role' => 'zz_role_agent', 'email' => ''];
-    call('POST', "$base/utilisateurs.php?action=update", $moi + ['service_id' => (string) $svcB, 'telephone' => '+227 91 00 00 00'], $auth['agent']);
+    [$c] = call('POST', "$base/utilisateurs.php?action=update", $moi + ['service_id' => (string) $svcB, 'telephone' => '+227 91 00 00 00'], $auth['agent']);
     $st = $pdo->prepare("SELECT service_id, telephone FROM t_utilisateurs WHERE id = ?"); $st->execute([$ids['agent']]); $r = $st->fetch();
-    check('un agent ne peut pas changer son propre service', (int) $r['service_id'] === $svcA);
-    check('…mais peut changer son téléphone', $r['telephone'] === '+227 91 00 00 00');
+    check('repli « modifier sa propre fiche » : le service reste inchangé', (int) $r['service_id'] === $svcA);
+    check('…mais le téléphone peut être modifié', $r['telephone'] === '+227 91 00 00 00');
+    [$c] = call('POST', "$base/utilisateurs.php?action=update", $moi, $auth['tech']);
+    check('un autre compte ne peut pas passer par l\'ancien endpoint → 410', $c === 410, "(reçu $c)");
     [$c, $j] = call('POST', "$base/auth.php?action=login", ['login' => 'zz_test_agent', 'password' => $pwd]);
     check('login renvoie le service de l\'utilisateur', ($j['user']['service'] ?? '') === 'ZZ_TEST_SVC_A' && ($j['user']['service_id'] ?? null) == $svcA);
     $pdo->exec("UPDATE t_utilisateurs SET service_id = NULL WHERE login = 'zz_test_agent'");
@@ -269,21 +293,21 @@ try {
     $r = tache_transition($pdo, $tid, $usr('tech2'), 'affecter', ['assigne_id' => $file['id']]);
     check('remettre dans la file Service IT → « À faire »', $r['ok'] && $r['tache']['statut'] === 'À faire' && (int) $r['tache']['assigne_id'] === $file['id']);
     $nbEvt = (int) $pdo->query("SELECT COUNT(*) FROM t_taches_evenements WHERE tache_id = $tid")->fetchColumn();
-    check('chaque transition a écrit un évènement (8 attendus)', $nbEvt === 8, "(reçu $nbEvt)");
+    check('chaque transition a écrit un évènement (9 : 8 transitions + la modification du déclarant)', $nbEvt === 9, "(reçu $nbEvt)");
 
     // Annulation par le déclarant : possible tant que personne n'a pris la panne.
-    [$c] = call('POST', "$base/taches.php?action=create", $t + ['titre' => 'ZZ_TEST_AGENT2', 'priorite' => 'Basse'], $auth['agent']);
+    web('POST', 'taches', $t + ['titre' => 'ZZ_TEST_AGENT2', 'priorite' => 'Basse'], $auth['agent']);
     $tid2 = (int) $pdo->query("SELECT id FROM t_taches WHERE titre = 'ZZ_TEST_AGENT2'")->fetchColumn();
     $r = tache_transition($pdo, $tid2, $usr('agent'), 'statut', ['statut' => 'Annulé']);
     check('le déclarant annule sa panne avant prise en charge', $r['ok'] && $r['tache']['statut'] === 'Annulé');
-    [$c] = call('POST', "$base/taches.php?action=create", $t + ['titre' => 'ZZ_TEST_AGENT3', 'priorite' => 'Basse'], $auth['agent']);
+    web('POST', 'taches', $t + ['titre' => 'ZZ_TEST_AGENT3', 'priorite' => 'Basse'], $auth['agent']);
     $tid3 = (int) $pdo->query("SELECT id FROM t_taches WHERE titre = 'ZZ_TEST_AGENT3'")->fetchColumn();
     tache_transition($pdo, $tid3, $usr('tech'), 'prendre');
     $r = tache_transition($pdo, $tid3, $usr('agent'), 'statut', ['statut' => 'Annulé']);
     check('…mais plus une fois prise en charge : 403', !$r['ok'] && $r['code'] === 403);
 
     echo "Concurrence : une seule prise en charge gagnante\n";
-    [$c] = call('POST', "$base/taches.php?action=create", $t + ['titre' => 'ZZ_TEST_COURSE', 'priorite' => 'Moyenne'], $auth['agent']);
+    web('POST', 'taches', $t + ['titre' => 'ZZ_TEST_COURSE', 'priorite' => 'Moyenne'], $auth['agent']);
     $tid4 = (int) $pdo->query("SELECT id FROM t_taches WHERE titre = 'ZZ_TEST_COURSE'")->fetchColumn();
     $procs = [];
     for ($i = 0; $i < 6; $i++) {

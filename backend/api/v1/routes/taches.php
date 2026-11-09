@@ -3,7 +3,7 @@
 
 const V1_TACHE_SELECT = "
     SELECT t.id, t.reference, t.titre, t.description, t.motif_cause, t.priorite, t.statut, t.service_concerne,
-           t.materiel_concerne, t.materiel_id, t.motif_attente, t.date_relance, t.date_limite, t.source, t.version, t.client_uuid,
+           t.materiel_concerne, t.materiel_id, t.motif_attente, t.date_relance, t.date_limite, t.actions AS actions_texte, t.source, t.version, t.client_uuid,
            t.assigne_id, COALESCE(ua.nom, t.assigne_a) AS assigne_nom, COALESCE(ua.est_file_commune, FALSE) AS assigne_file,
            t.declarant_id, ud.nom AS declarant_nom,
            t.date_creation, t.date_modification, t.date_modification::text AS dm_raw,
@@ -79,6 +79,7 @@ function v1_tache_json(PDO $pdo, array $user, array $t): array
         'en_file' => $t['assigne_id'] === null || (bool) $t['assigne_file'],
         'declarant' => $t['declarant_id'] === null ? null : ['id' => (int) $t['declarant_id'], 'nom' => $t['declarant_nom']],
         'motif_attente' => $t['motif_attente'], 'date_relance' => $t['date_relance'], 'date_limite' => $t['date_limite'],
+        'actions_texte' => $t['actions_texte'],
         'dates' => [
             'creation' => api_ts($pdo, $t['date_creation']), 'prise_en_charge' => api_ts($pdo, $t['date_prise_en_charge']),
             'resolution' => api_ts($pdo, $t['date_resolution']),
@@ -212,7 +213,7 @@ route('POST', 'taches', function (array $c): void {
         'client_uuid' => api_uuid($b, 'client_uuid'),
         'assigne_id' => api_int($b, 'assigne_id'),
         'date_limite' => api_date($b, 'date_limite'),
-        'source' => 'mobile',
+        'source' => $c['appareil'] ? 'mobile' : 'web',   // session du site web : pas d'appareil
         'materiel_id' => null,
     ];
     $serviceId = api_int($b, 'service_id') ?? $u['service_id'];
@@ -328,13 +329,14 @@ route('PATCH', 'taches/{id}', function (array $c): void {
         }
         $lib['materiel_id'] = 'matériel'; $lib['materiel_concerne'] = 'matériel';
     }
-    foreach (['motif_cause' => 'cause', 'date_limite' => 'date limite'] as $col => $nom) {
+    foreach (['motif_cause' => 'cause', 'date_limite' => 'date limite', 'actions_texte' => 'actions menées'] as $col => $nom) {
         if (array_key_exists($col, $b)) {
             if ($niveau !== 'equipe') {
                 api_fail(403, 'interdit', "Le champ « $col » est réservé à l'équipe IT.", ['champ' => $col]);
             }
-            $champs[$col] = $col === 'date_limite' ? api_date($b, $col) : api_str($b, $col, false, 500);
-            $lib[$col] = $nom;
+            $cle = $col === 'actions_texte' ? 'actions' : $col;
+            $champs[$cle] = $col === 'date_limite' ? api_date($b, $col) : api_str($b, $col, false, $col === 'actions_texte' ? 5000 : 500);
+            $lib[$cle] = $nom;
         }
     }
     if (!$champs) {

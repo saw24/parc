@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/parametres.php';
 require_once __DIR__ . '/../middleware/auth.php';
+require_once __DIR__ . '/../lib/legacy.php';
 $currentUser = require_auth($pdo);
 
 /** Le rôle doit exister dans t_roles (empêche d'inscrire un rôle arbitraire envoyé par le client). */
@@ -74,6 +75,8 @@ $method = $_SERVER['REQUEST_METHOD'];
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
 // Traitement en fonction de l'action demandée
+legacy_migre($action, ['read', 'create', 'delete']);
+
 switch ($action) {
     // ===============================================
     // BLOC POUR LA LECTURE
@@ -285,7 +288,8 @@ switch ($action) {
         // un utilisateur peut modifier SON PROPRE compte (ex: changer son mot de passe).
         $isSelfEdit = !has_permission($currentUser, 'utilisateur.gerer') && (intval($id) === intval($currentUser['id']));
         if (!$isSelfEdit) {
-            require_permission($currentUser, 'utilisateur.gerer'); // renvoie 403 et arrête l'exécution
+            // La gestion des comptes passe par l'API v1 ; seul le repli « modifier sa propre fiche » reste ici.
+            legacy_migre('update', ['update']);
         }
         if ($isSelfEdit) {
             // Un utilisateur non-administrateur ne peut pas s'auto-attribuer un autre

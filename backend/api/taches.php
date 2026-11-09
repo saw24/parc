@@ -11,6 +11,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/parametres.php';
 require_once __DIR__ . '/../lib/notifications.php';
 require_once __DIR__ . '/../middleware/auth.php';
+require_once __DIR__ . '/../lib/legacy.php';
 $currentUser = require_auth($pdo);
 require_once __DIR__ . '/../lib/taches.php';
 // Il faut au moins un droit lié aux pannes pour utiliser cette API ; le détail est contrôlé par action.
@@ -21,6 +22,8 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // On récupère l'action. Pour une requête POST, l'action peut être dans les données POST.
 $actions = $_GET['action'] ?? $_POST['actions'] ?? '';
+
+legacy_migre($actions, ['read', 'create', 'update', 'delete']);
 
 switch ($actions) {
     case 'read':

@@ -9,10 +9,13 @@ ini_set('display_errors', 0); // ne jamais afficher les erreurs PHP au client (f
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../middleware/auth.php';
+require_once __DIR__ . '/../lib/legacy.php';
 $currentUser = require_auth($pdo);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+legacy_migre($action, ['read', 'create', 'update', 'delete']);
 
 switch ($action) {
     // ===============================================

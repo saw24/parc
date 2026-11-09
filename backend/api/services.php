@@ -2,6 +2,7 @@
 // Inclusion du fichier de connexion à la base de données
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../middleware/auth.php';
+require_once __DIR__ . '/../lib/legacy.php';
 $currentUser = require_auth($pdo);
 
 // Activation du rapport d'erreurs pour le débogage
@@ -15,6 +16,8 @@ $method = $_SERVER['REQUEST_METHOD'];
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
 // Traitement en fonction de l'action demandée
+legacy_migre($action, ['read', 'create', 'update', 'delete']);
+
 switch ($action) {
     // ===============================================
     // BLOC POUR LA LECTURE

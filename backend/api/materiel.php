@@ -9,6 +9,7 @@ ini_set('display_errors', 0); // ne jamais afficher les erreurs PHP au client (f
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../middleware/auth.php';
+require_once __DIR__ . '/../lib/legacy.php';
 $currentUser = require_auth($pdo);
 
 // On détermine si la requête est de type GET ou POST
@@ -16,6 +17,8 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // On récupère l'action. Pour une requête POST, l'action peut être dans les données POST.
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+legacy_migre($action, ['read', 'create', 'update', 'delete', 'historique_affectations']);
 
 switch ($action) {
     case 'read':
