@@ -26,7 +26,7 @@ fun EcranInterventions(vm: AppViewModel) {
         EnTete("Interventions", "${vm.interventions.size} panne(s)", actions = {
             IconButton({ vm.chargerInterventions() }) { Icon(Icons.Rounded.Refresh, "Actualiser") }
         })
-        val filtres = listOf("file" to "À prendre", "moi" to "Mes tâches", "toutes" to "Toutes")
+        val filtres = listOf("file" to "À prendre", "moi" to "Mes tâches", "ouvertes" to "Ouvertes", "toutes" to "Toutes")
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             filtres.forEachIndexed { i, (k, l) ->
                 SegmentedButton(vm.filtre == k, { vm.choisirFiltre(k) }, SegmentedButtonDefaults.itemShape(i, filtres.size), label = { Text(l) })
@@ -39,7 +39,8 @@ fun EcranInterventions(vm: AppViewModel) {
                 when (vm.filtre) {
                     "file" -> EtatVide(Icons.Rounded.CheckCircle, "File vide", "Aucune panne en attente de prise en charge.")
                     "moi" -> EtatVide(Icons.Rounded.Inbox, "Rien à traiter", "Aucune tâche ne vous est assignée.")
-                    else -> EtatVide(Icons.Rounded.Inbox, "Aucune panne ouverte")
+                    "ouvertes" -> EtatVide(Icons.Rounded.Inbox, "Aucune panne ouverte")
+                    else -> EtatVide(Icons.Rounded.Inbox, "Aucune panne")
                 }
             }
             items(vm.interventions, key = { it.id }) { t ->

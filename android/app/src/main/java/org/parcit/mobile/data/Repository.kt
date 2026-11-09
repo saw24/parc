@@ -109,12 +109,17 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         return out
     }
 
-    /** filtre : "file" (à prendre), "moi" (mes tâches) ou "toutes" (ouvertes). */
+    /** filtre : "file" (à prendre), "moi" (mes tâches ouvertes), "ouvertes" ou "toutes" (tous statuts). */
     suspend fun interventions(filtre: String, q: String): List<Tache> {
-        val p = mutableMapOf("ouvertes" to "1")
-        when (filtre) { "file" -> p["assigne"] = "file"; "moi" -> p["assigne"] = "moi" }
+        val p = mutableMapOf<String, String>()
+        when (filtre) {
+            "file" -> { p["assigne"] = "file"; p["ouvertes"] = "1" }
+            "moi" -> { p["assigne"] = "moi"; p["ouvertes"] = "1" }
+            "ouvertes" -> p["ouvertes"] = "1"
+            // « toutes » : tous les statuts, y compris terminées et annulées
+        }
         if (q.isNotBlank()) p["q"] = q.trim()
-        return pages("taches", p)
+        return pages("taches", p, max = 1000)
     }
 
     suspend fun agents(): List<Agent> = api.get("agents").data()
