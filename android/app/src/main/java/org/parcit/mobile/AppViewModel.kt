@@ -39,6 +39,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     var referentiels by mutableStateOf(Referentiels())
     var materiels by mutableStateOf<List<Materiel>>(emptyList())
     var serveur by mutableStateOf(app.store.serverUrl)
+    var sombre by mutableStateOf(app.store.themeSombre)
     var notifications by mutableStateOf<List<AppNotification>>(emptyList())
     var nonLues by mutableStateOf(0)
     /** Pop-up affiché quand une nouvelle notification arrive pendant que l'application est ouverte. */
@@ -270,5 +271,6 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     fun commenter(texte: String) { val t = detail ?: return; lancer { detail = repo.commenter(t.id, texte) } }
     fun annuler(motif: String) { val t = detail ?: return; lancer { detail = repo.annuler(t, motif); message = "Panne annulée." } }
+    fun basculerTheme() { sombre = !sombre; app.store.themeSombre = sombre }
     fun messageLu() { message = null }
 }

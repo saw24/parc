@@ -1,6 +1,5 @@
 package org.parcit.mobile.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -61,6 +60,6 @@ private val Typo = Typography(
 )
 
 @Composable
-fun ParcTheme(content: @Composable () -> Unit) = MaterialTheme(
-    colorScheme = if (isSystemInDarkTheme()) Sombre else Claire, shapes = Formes, typography = Typo, content = content,
+fun ParcTheme(sombre: Boolean, content: @Composable () -> Unit) = MaterialTheme(
+    colorScheme = if (sombre) Sombre else Claire, shapes = Formes, typography = Typo, content = content,
 )

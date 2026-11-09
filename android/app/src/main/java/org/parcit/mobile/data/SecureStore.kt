@@ -62,6 +62,10 @@ class SecureStore(context: Context) {
     var dernierNotifId: Long
         get() = prefs.getLong("notif_id", 0); set(v) = prefs.edit().putLong("notif_id", v).apply()
 
+    /** Thème de l'interface : clair par défaut. */
+    var themeSombre: Boolean
+        get() = prefs.getBoolean("theme_sombre", false); set(v) = prefs.edit().putBoolean("theme_sombre", v).apply()
+
     val loggedIn: Boolean get() = refreshToken != null
 
     /** Efface la session (la file d'envoi est conservée pour ne rien perdre). */

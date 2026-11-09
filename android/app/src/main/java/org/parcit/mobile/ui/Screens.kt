@@ -96,6 +96,10 @@ fun EcranConnexion(vm: AppViewModel) {
     var mdp by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     val pret = !vm.chargement && login.isNotBlank() && mdp.isNotBlank() && serveur.isNotBlank()
+    Box(Modifier.fillMaxSize()) {
+    IconButton({ vm.basculerTheme() }, Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+        Icon(if (vm.sombre) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, if (vm.sombre) "Thème clair" else "Thème sombre")
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).imePadding(),
         verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
@@ -127,6 +131,7 @@ fun EcranConnexion(vm: AppViewModel) {
         }
         Spacer(Modifier.height(24.dp))
     }
+    }
 }
 
 // ------------------------------------------------------------------ Mes pannes
@@ -151,6 +156,9 @@ fun EcranListe(vm: AppViewModel) {
                         Text(vm.utilisateur?.nom ?: "", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.titleSmall)
                         Text(vm.utilisateur?.role ?: "", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        DropdownMenuItem(text = { Text(if (vm.sombre) "Thème clair" else "Thème sombre") },
+                            leadingIcon = { Icon(if (vm.sombre) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, null) },
+                            onClick = { vm.basculerTheme() })
                         DropdownMenuItem(text = { Text("Se déconnecter") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
                             onClick = { menu = false; vm.deconnecter() })
                     }
@@ -396,6 +404,15 @@ fun EcranNotifications(vm: AppViewModel) {
                             Switch(prefs.sms, { vm.preferences(prefs.email, it) }); Spacer(Modifier.width(8.dp)); Text("SMS")
                         }
                         Text("Les alertes dans l'application restent toujours actives.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
+                Carte {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Rounded.DarkMode, null)
+                        Text("Thème sombre", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        Switch(vm.sombre, { vm.basculerTheme() })
                     }
                 }
             }

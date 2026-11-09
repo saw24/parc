@@ -3,7 +3,9 @@ package org.parcit.mobile
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -28,7 +30,17 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33 && !Alertes.autorise(this)) {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { }.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        setContent { ParcTheme { Root(vm) } }
+        setContent {
+            // Les icônes des barres système suivent le thème choisi dans l'application, pas celui du téléphone.
+            LaunchedEffect(vm.sombre) {
+                val transparent = android.graphics.Color.TRANSPARENT
+                enableEdgeToEdge(
+                    statusBarStyle = if (vm.sombre) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
+                    navigationBarStyle = if (vm.sombre) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
+                )
+            }
+            ParcTheme(vm.sombre) { Root(vm) }
+        }
         ouvrirDepuis(intent)
     }
 
