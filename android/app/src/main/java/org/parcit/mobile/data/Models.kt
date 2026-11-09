@@ -10,7 +10,12 @@ import kotlinx.serialization.Serializable
     val id: Int, val nom: String, val login: String, val email: String? = null, val telephone: String? = null,
     val role: String = "", val service: Service? = null, val permissions: List<String> = emptyList(),
     @SerialName("agent_it") val agentIt: Boolean = false, val notifications: Preferences = Preferences(),
-) { fun peut(code: String) = code in permissions }
+) {
+    fun peut(code: String) = code in permissions
+    val voitInterventions get() = peut("tache.voir_toutes")
+    val voitParc get() = peut("materiel.voir_tous") || peut("materiel.voir_siens")
+    val gereParc get() = peut("materiel.creer") || peut("materiel.modifier")
+}
 
 @Serializable data class Dates(
     val creation: String? = null, @SerialName("prise_en_charge") val priseEnCharge: String? = null,
@@ -30,12 +35,18 @@ import kotlinx.serialization.Serializable
     @SerialName("nouveau_assigne") val nouveauAssigne: Ref? = null, val commentaire: String? = null,
 )
 
+@Serializable data class Sla(
+    @SerialName("retard_prise_en_charge") val retardPriseEnCharge: Boolean = false,
+    @SerialName("retard_resolution") val retardResolution: Boolean = false,
+)
+
 @Serializable data class Tache(
     val id: Int, val reference: String? = null, val titre: String, val description: String? = null,
     val priorite: String = "Moyenne", val statut: String = "À faire", val service: String? = null,
     val materiel: Ref? = null, val assigne: Ref? = null, @SerialName("en_file") val enFile: Boolean = false,
     val declarant: Ref? = null, @SerialName("motif_attente") val motifAttente: String? = null,
     val dates: Dates = Dates(), val version: Int = 0, @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("date_relance") val dateRelance: String? = null, val sla: Sla = Sla(),
     val actions: Actions = Actions(), val evenements: List<Evenement> = emptyList(),
 )
 
@@ -43,6 +54,26 @@ import kotlinx.serialization.Serializable
 
 @Serializable data class Referentiels(
     val services: List<Service> = emptyList(), val priorites: List<String> = listOf("Basse", "Moyenne", "Haute"),
+    @SerialName("types_materiel") val typesMateriel: List<Service> = emptyList(),
+    @SerialName("statuts_materiel") val statutsMateriel: List<String> = listOf("En attente", "En service", "En panne", "Retiré"),
+)
+
+@Serializable data class Agent(val id: Int, val nom: String, @SerialName("file_commune") val fileCommune: Boolean = false, val charge: Int = 0)
+
+@Serializable data class UtilisateurRef(val id: Int, val nom: String, val service: Service? = null)
+
+@Serializable data class Fiche(
+    val id: Int, val libelle: String, val type: String? = null, val marque: String? = null, val modele: String? = null,
+    @SerialName("num_serie") val numSerie: String? = null, @SerialName("date_achat") val dateAchat: String? = null,
+    val statut: String = "", val service: Ref? = null, val utilisateur: Ref? = null,
+    @SerialName("pannes_ouvertes") val pannesOuvertes: Int = 0,
+)
+
+@Serializable data class Affectation(val id: Int, val utilisateur: String? = null, val service: String? = null, val debut: String? = null, val fin: String? = null)
+
+@Serializable data class Config(
+    @SerialName("app_version_courante") val versionCourante: String = "", @SerialName("app_version_minimale") val versionMinimale: String = "",
+    @SerialName("apk_url") val apkUrl: String? = null, @SerialName("notes_version") val notes: String? = null,
 )
 
 /** Déclaration saisie sur le téléphone, envoyée dès que le réseau le permet (idempotente via [uuid]). */

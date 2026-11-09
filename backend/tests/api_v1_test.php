@@ -283,6 +283,13 @@ try {
     for ($i = 0; $i < 6; $i++) { $dernier = api('POST', 'auth/login', ['login' => 'zz_v1_agent2', 'password' => 'mauvais']); }
     check('6e échec → 429 + Retry-After', $dernier[0] === 429 && isset($dernier[2]['retry-after']) && erreur($dernier) === 'trop_de_tentatives');
     check('même le bon mot de passe est refusé pendant le blocage', api('POST', 'auth/login', ['login' => 'zz_v1_agent2', 'password' => $pwd])[0] === 429);
+
+    echo "Liste des utilisateurs (affectation du matériel)\n";
+    $r = api('GET', 'utilisateurs', null, $A('tech'));
+    check('technicien : liste des agents actifs', $r[0] === 200 && in_array('ZZ zz_v1_agent', array_column($r[1]['data'] ?? [], 'nom'), true)
+        && !in_array('Service IT', array_column($r[1]['data'] ?? [], 'nom'), true));
+    check('agent simple : refusé', api('GET', 'utilisateurs', null, $A('agent'))[0] === 403);
+
 } finally {
     nettoyer($pdo, $comptes, $rolesTest);
 }

@@ -42,6 +42,7 @@ Code : `backend/api/v1/` · logique partagée : `backend/lib/` · tests : `backe
 | `GET notifications` | — | boîte de réception (50 max, plus récentes d'abord) : `apres_id=N`, `non_lues=1` ; `meta.non_lues` = compteur. Chaque entrée : `type`, `titre`, `message`, `tache{id,reference,statut}`, `peut_prendre` (afficher « Je prends » : appeler ensuite `POST taches/{id}/prendre`), `lue` |
 | `POST notifications/lues` `{ids:[…]}` ou `{toutes:true}` | — | marque comme lues (uniquement les siennes) |
 | `GET referentiels` | — | services, types de matériel, priorités, statuts, délais SLA |
+| `GET utilisateurs` | `utilisateur.lister`, `materiel.creer` ou `materiel.modifier` | agents actifs (id, nom, service) pour affecter un matériel |
 | `GET agents` | `tache.affecter` | agents IT + file « Service IT », avec leur charge |
 | `GET accueil` | accès aux pannes | compteurs : mes pannes ouvertes, mes assignées, file, retards SLA, relances dues |
 | `GET taches` | `tache.voir_toutes` ou `tache.voir_siennes` | filtres : `statut=A,B` · `ouvertes=1` · `assigne=moi\|file\|<id>` · `declarant=moi` · `materiel_id` · `q` · `updated_since` · `ids_only=1` |

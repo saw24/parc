@@ -1,8 +1,14 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+// Signature de la version de production : keystore.properties (hors dépôt) contient
+// storeFile, storePassword, keyAlias, keyPassword. Sans ce fichier, la version release n'est pas signée.
+val signature = Properties().apply { rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
 
 android {
     namespace = "org.parcit.mobile"
@@ -17,9 +23,17 @@ android {
         buildConfigField("String", "DEFAULT_SERVER", "\"https://parc.example.org/parc\"")
     }
     buildFeatures { compose = true; buildConfig = true }
+    signingConfigs {
+        if (signature.isNotEmpty()) create("production") {
+            storeFile = rootProject.file(signature.getProperty("storeFile"))
+            storePassword = signature.getProperty("storePassword")
+            keyAlias = signature.getProperty("keyAlias")
+            keyPassword = signature.getProperty("keyPassword")
+        }
+    }
     buildTypes {
         debug { manifestPlaceholders["usesCleartext"] = "true"; buildConfigField("String", "DEFAULT_SERVER", "\"http://10.0.2.2/parc\"") }
-        release { manifestPlaceholders["usesCleartext"] = "false"; isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
+        release { manifestPlaceholders["usesCleartext"] = "false"; if (signature.isNotEmpty()) signingConfig = signingConfigs.getByName("production"); isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
@@ -38,5 +52,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")   // modèle embarqué : fonctionne sans services Google Play
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

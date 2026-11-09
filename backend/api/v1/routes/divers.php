@@ -42,6 +42,17 @@ route('GET', 'agents', function (array $c): void {
         'charge' => (int) $a['charge']], $st->fetchAll()));
 });
 
+// Liste des agents actifs (choix d'un utilisateur lors de l'affectation d'un matériel).
+route('GET', 'utilisateurs', function (array $c): void {
+    if (!has_any_permission($c['user'], ['utilisateur.lister', 'materiel.creer', 'materiel.modifier'])) {
+        api_fail(403, 'interdit', 'Permission manquante : utilisateur.lister');
+    }
+    $st = $c['pdo']->query("SELECT u.id, u.nom, s.id AS service_id, s.nom AS service FROM t_utilisateurs u
+        LEFT JOIN t_services s ON s.id = u.service_id WHERE u.actif AND NOT u.est_file_commune ORDER BY u.nom");
+    api_data(array_map(fn($u) => ['id' => (int) $u['id'], 'nom' => $u['nom'],
+        'service' => $u['service_id'] ? ['id' => (int) $u['service_id'], 'nom' => $u['service']] : null], $st->fetchAll()));
+});
+
 function require_permission_v1(array $user, string $code): void
 {
     if (!has_permission($user, $code)) {

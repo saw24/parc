@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import org.parcit.mobile.AppViewModel
 import org.parcit.mobile.Ecran
+import org.parcit.mobile.principal
 import org.parcit.mobile.data.*
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -49,13 +50,27 @@ fun Pastille(texte: String, couleur: Color) = Surface(color = couleur.copy(alpha
 fun Root(vm: AppViewModel) {
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(vm.message) { vm.message?.let { snack.showSnackbar(it); vm.messageLu() } }
-    Scaffold(snackbarHost = { SnackbarHost(snack) }) { pad ->
+    val u = vm.utilisateur
+    Scaffold(snackbarHost = { SnackbarHost(snack) }, bottomBar = {
+        if (u != null && vm.ecran.principal) NavigationBar {
+            NavigationBarItem(vm.ecran == Ecran.Liste, { vm.aller(Ecran.Liste) }, { Text("●") }, label = { Text("Mes pannes") })
+            if (u.voitInterventions) NavigationBarItem(vm.ecran == Ecran.Interventions, { vm.aller(Ecran.Interventions) }, { Text("●") }, label = { Text("Interventions") })
+            if (u.voitParc) NavigationBarItem(vm.ecran == Ecran.Parc, { vm.aller(Ecran.Parc) }, { Text("●") }, label = { Text("Parc") })
+            NavigationBarItem(vm.ecran == Ecran.Notifications, { vm.aller(Ecran.Notifications) },
+                { BadgedBox({ if (vm.nonLues > 0) Badge { Text("${vm.nonLues}") } }) { Text("●") } }, label = { Text("Alertes") })
+        }
+    }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             if (vm.utilisateur == null) EcranConnexion(vm)
             else when (val e = vm.ecran) {
                 Ecran.Liste -> EcranListe(vm)
                 Ecran.Declarer -> { BackHandler { vm.retour() }; EcranDeclarer(vm) }
-                Ecran.Notifications -> { BackHandler { vm.retour() }; EcranNotifications(vm) }
+                Ecran.Notifications -> { BackHandler { vm.aller(Ecran.Liste) }; EcranNotifications(vm) }
+                Ecran.Interventions -> { BackHandler { vm.aller(Ecran.Liste) }; EcranInterventions(vm) }
+                Ecran.Parc -> { BackHandler { vm.aller(Ecran.Liste) }; EcranParc(vm) }
+                Ecran.Scan -> { BackHandler { vm.retour() }; EcranScan(vm) }
+                is Ecran.MaterielDetail -> { BackHandler { vm.retour() }; EcranFiche(vm) }
+                is Ecran.MaterielForm -> { BackHandler { vm.retour() }; EcranFormMateriel(vm, e.id) }
                 is Ecran.Detail -> { BackHandler { vm.retour() }; EcranDetail(vm) }
             }
             vm.alerte?.let { n ->
@@ -104,7 +119,6 @@ fun EcranListe(vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("Mes pannes") }, actions = {
-                TextButton({ vm.ouvrirNotifications() }) { Text(if (vm.nonLues > 0) "Alertes (${vm.nonLues})" else "Alertes") }
                 TextButton({ vm.actualiser() }) { Text("Actualiser") }
                 Box {
                     TextButton({ menu = true }) { Text(vm.utilisateur?.nom ?: "Compte") }
@@ -117,6 +131,7 @@ fun EcranListe(vm: AppViewModel) {
         floatingActionButton = { ExtendedFloatingActionButton({ vm.ouvrirFormulaire() }) { Text("+ Déclarer une panne") } },
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            vm.miseAJour?.let { c -> item { BandeauMiseAJour(c) } }
             items(vm.brouillons, key = { it.uuid }) { b ->
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF4E5))) {
                     Column(Modifier.padding(12.dp)) {
@@ -160,15 +175,15 @@ fun EcranDeclarer(vm: AppViewModel) {
     var desc by remember { mutableStateOf("") }
     var prio by remember { mutableStateOf("Moyenne") }
     var service by remember { mutableStateOf<Service?>(vm.utilisateur?.service) }
-    var materiel by remember { mutableStateOf<Materiel?>(null) }
+    var materiel by remember { mutableStateOf(vm.materielPrefill) }
     Scaffold(topBar = { TopAppBar(title = { Text("Déclarer une panne") }, navigationIcon = { TextButton({ vm.retour() }) { Text("Retour") } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(titre, { titre = it }, label = { Text("Objet de la panne *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(desc, { desc = it }, label = { Text("Description") }, minLines = 4, modifier = Modifier.fillMaxWidth())
             Choix("Priorité", vm.referentiels.priorites, prio, { it }) { prio = it ?: prio }
             Choix("Service", vm.referentiels.services, service, { it.nom }, optionnel = true) { service = it }
-            if (vm.materiels.isNotEmpty())
-                Choix("Matériel concerné", vm.materiels, materiel, { it.libelle }, optionnel = true) { materiel = it }
+            if (vm.materiels.isNotEmpty() || vm.materielPrefill != null)
+                Choix("Matériel concerné", (vm.materiels + listOfNotNull(vm.materielPrefill)).distinctBy { it.id }, materiel, { it.libelle }, optionnel = true) { materiel = it }
             Button({ vm.declarer(titre.trim(), desc.trim(), prio, service?.id, materiel?.id) }, enabled = titre.isNotBlank() && !vm.chargement,
                 modifier = Modifier.fillMaxWidth()) { Text("Envoyer") }
         }
@@ -219,10 +234,11 @@ fun EcranDetail(vm: AppViewModel) {
                     Text(dateLisible(e.createdAt), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
             }
-            if (t.actions.commenter) {
+            if (t.actions.commenter && !vm.estEquipe(t)) {
                 OutlinedTextField(commentaire, { commentaire = it }, label = { Text("Ajouter un commentaire") }, modifier = Modifier.fillMaxWidth())
                 Button({ vm.commenter(commentaire.trim()); commentaire = "" }, enabled = commentaire.isNotBlank() && !vm.chargement) { Text("Envoyer le commentaire") }
             }
+            ActionsAgent(vm, t)
             if (t.actions.prendre) Button({ vm.prendre(t.id) }, enabled = !vm.chargement, modifier = Modifier.fillMaxWidth()) { Text("Je prends cette panne") }
             if (t.actions.annuler) OutlinedButton({ confirmer = true }) { Text("Annuler cette panne") }
         }
@@ -277,6 +293,19 @@ fun EcranNotifications(vm: AppViewModel) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun BandeauMiseAJour(c: Config) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Nouvelle version ${c.versionCourante} disponible", style = MaterialTheme.typography.titleSmall)
+            c.notes?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (!c.apkUrl.isNullOrBlank())
+                TextButton({ runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(c.apkUrl))) } }) { Text("Télécharger l'APK") }
         }
     }
 }

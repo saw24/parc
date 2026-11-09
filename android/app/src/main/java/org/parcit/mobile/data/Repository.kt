@@ -78,6 +78,73 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         return tache(t.id)
     }
 
+    // ------------------------------------------------------------------ Interventions (agents IT)
+    private suspend inline fun <reified T> pages(path: String, base: Map<String, String>, max: Int = 300): List<T> {
+        val out = mutableListOf<T>()
+        var cursor: String? = null
+        do {
+            val q = base.toMutableMap().apply { put("limit", "100"); cursor?.let { put("cursor", it) } }
+            val r = api.get(path, q)
+            out += r.data<List<T>>()
+            cursor = r["meta"]?.jsonObject?.get("next_cursor")?.jsonPrimitive?.contentOrNull
+        } while (cursor != null && out.size < max)
+        return out
+    }
+
+    /** filtre : "file" (à prendre), "moi" (mes tâches) ou "toutes" (ouvertes). */
+    suspend fun interventions(filtre: String, q: String): List<Tache> {
+        val p = mutableMapOf("ouvertes" to "1")
+        when (filtre) { "file" -> p["assigne"] = "file"; "moi" -> p["assigne"] = "moi" }
+        if (q.isNotBlank()) p["q"] = q.trim()
+        return pages("taches", p)
+    }
+
+    suspend fun agents(): List<Agent> = api.get("agents").data()
+
+    suspend fun affecter(t: Tache, assigneId: Int, commentaire: String?): Tache {
+        api.post("taches/${t.id}/affecter", buildJsonObject {
+            put("assigne_id", assigneId); put("version", t.version)
+            if (!commentaire.isNullOrBlank()) put("commentaire", commentaire)
+        })
+        return tache(t.id)
+    }
+
+    suspend fun changerStatut(t: Tache, statut: String, motif: String?, relance: String?, commentaire: String?): Tache {
+        api.post("taches/${t.id}/statut", buildJsonObject {
+            put("statut", statut); put("version", t.version)
+            if (!motif.isNullOrBlank()) put("motif_attente", motif)
+            if (!relance.isNullOrBlank()) put("date_relance", relance)
+            if (!commentaire.isNullOrBlank()) put("commentaire", commentaire)
+        })
+        return tache(t.id)
+    }
+
+    suspend fun commenterEquipe(id: Int, texte: String, visibleDeclarant: Boolean): Tache {
+        api.post("taches/$id/commentaires", buildJsonObject { put("commentaire", texte); put("visible_declarant", visibleDeclarant) })
+        return tache(id)
+    }
+
+    // ------------------------------------------------------------------ Parc
+    suspend fun parc(q: String, statut: String?): List<Fiche> {
+        val p = mutableMapOf<String, String>()
+        if (q.isNotBlank()) p["q"] = q.trim()
+        if (!statut.isNullOrBlank()) p["statut"] = statut
+        return pages("materiel", p)
+    }
+
+    suspend fun fiche(id: Int): Fiche = api.get("materiel/$id").data()
+    suspend fun affectations(id: Int): List<Affectation> = api.get("materiel/$id/affectations").data()
+    suspend fun pannesDuMateriel(id: Int): List<Tache> = api.get("materiel/$id/pannes").data()
+    suspend fun scanner(code: String): Fiche = api.get("materiel/scan", mapOf("code" to code)).data()
+    suspend fun utilisateurs(): List<UtilisateurRef> = api.get("utilisateurs").data()
+
+    /** Création (id null) ou modification partielle ; les champs absents ne sont pas touchés. */
+    suspend fun enregistrerMateriel(id: Int?, champs: JsonObject): Fiche =
+        (if (id == null) api.post("materiel", champs) else api.patch("materiel/$id", champs)).data()
+
+    // ------------------------------------------------------------------ Mise à jour de l'APK
+    suspend fun config(): Config = api.get("config", auth = false).data()
+
     // ------------------------------------------------------------------ Notifications
     /** Les 50 dernières notifications, plus le nombre de non lues. */
     suspend fun notifications(): Pair<List<AppNotification>, Int> {

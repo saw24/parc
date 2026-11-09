@@ -15,8 +15,12 @@ cd android && ./gradlew :app:assembleDebug     # APK : app/build/outputs/apk/deb
 ```
 JDK 17+ et SDK Android 36 requis. L'émulateur joint le Mac via `http://10.0.2.2/parc` (adresse par défaut du build debug, HTTP clair autorisé). Le build release n'autorise que HTTPS et utilise `DEFAULT_SERVER` (`app/build.gradle.kts`, à remplacer par l'adresse de production).
 
-## Signature (APK direct + Play Store privé)
-Une seule clé de signature pour les deux canaux. Créer le keystore hors dépôt (`keystore.properties` et `*.jks` sont ignorés par git), le sauvegarder dans un coffre : sa perte interdit toute mise à jour. À brancher dans `signingConfigs` au lot 7.
+## Signature et distribution (APK direct uniquement)
+L'application se distribue en **APK installé directement** (pas de Play Store). Android n'accepte une mise à jour que si l'APK est signé avec **la même clé** que la version installée : créer le keystore une fois, hors dépôt, et le sauvegarder dans un coffre (la perte oblige tous les utilisateurs à désinstaller puis réinstaller).
+```
+keytool -genkeypair -v -keystore parcit.jks -alias parcit -keyalg RSA -keysize 4096 -validity 9125
+```
+Créer `android/keystore.properties` (ignoré par git) : `storeFile=…/parcit.jks`, `storePassword=…`, `keyAlias=parcit`, `keyPassword=…`. Puis `./gradlew :app:assembleRelease` → `app/build/outputs/apk/release/`. Voir [MEMO_LOT5](MEMO_LOT5_AGENT_IT_ET_PARC.md) pour la publication d'une version.
 
 ## Non fait (volontairement)
 - Écrans agent IT, parc, scan QR : lot 5. Notifications (FCM, scrutation, bouton « Je prends ») : lot 4.

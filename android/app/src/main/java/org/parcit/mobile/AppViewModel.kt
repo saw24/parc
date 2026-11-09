@@ -15,8 +15,16 @@ sealed interface Ecran {
     data object Liste : Ecran
     data object Declarer : Ecran
     data object Notifications : Ecran
+    data object Interventions : Ecran
+    data object Parc : Ecran
+    data object Scan : Ecran
     data class Detail(val id: Int) : Ecran
+    data class MaterielDetail(val id: Int) : Ecran
+    data class MaterielForm(val id: Int?) : Ecran
 }
+
+/** Écrans principaux (barre du bas) : on y revient avec « Retour ». */
+val Ecran.principal get() = this is Ecran.Liste || this is Ecran.Interventions || this is Ecran.Parc || this is Ecran.Notifications
 
 class AppViewModel(private val app: ParcApp) : ViewModel() {
     private val repo = app.repo
@@ -37,7 +45,29 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     var alerte by mutableStateOf<AppNotification?>(null)
     private var scrutation: Job? = null
 
+    // Vue agent IT
+    var filtre by mutableStateOf("file")
+    var recherche by mutableStateOf("")
+    var interventions by mutableStateOf<List<Tache>>(emptyList())
+    var agents by mutableStateOf<List<Agent>>(emptyList())
+    var origine: Ecran = Ecran.Liste
+    /** Matériel présélectionné quand on déclare une panne depuis sa fiche. */
+    var materielPrefill by mutableStateOf<Materiel?>(null)
+
+    // Parc
+    var rechercheParc by mutableStateOf("")
+    var statutParc by mutableStateOf<String?>(null)
+    var parc by mutableStateOf<List<Fiche>>(emptyList())
+    var fiche by mutableStateOf<Fiche?>(null)
+    var affectations by mutableStateOf<List<Affectation>>(emptyList())
+    var pannesMateriel by mutableStateOf<List<Tache>>(emptyList())
+    var utilisateursRef by mutableStateOf<List<UtilisateurRef>>(emptyList())
+
+    /** Nouvelle version de l'APK disponible (distribution directe : le téléchargement se fait par le lien du serveur). */
+    var miseAJour by mutableStateOf<Config?>(null)
+
     init {
+        verifierMiseAJour()
         app.api.onSessionLost = { utilisateur = null; taches = emptyList(); message = "Session expirée, reconnectez-vous." }
     }
 
@@ -124,16 +154,104 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
         }
     }
 
-    fun ouvrirDetail(id: Int) { ecran = Ecran.Detail(id); detail = taches.firstOrNull { it.id == id }
+    fun ouvrirDetail(id: Int) { if (ecran.principal) origine = ecran; ecran = Ecran.Detail(id); detail = taches.firstOrNull { it.id == id }
         lancer(chargeur = detail == null) { detail = repo.tache(id) } }
 
-    fun ouvrirFormulaire() {
+    fun ouvrirFormulaire(prefill: Materiel? = null) {
+        materielPrefill = prefill
+        if (prefill == null) origine = Ecran.Liste
         ecran = Ecran.Declarer
         lancer(chargeur = false) { referentiels = repo.referentiels(); materiels = repo.mesMateriels() }
     }
 
-    fun retour() { ecran = Ecran.Liste; detail = null; actualiser() }
-    fun retourNotifications() { ecran = Ecran.Notifications; detail = null }
+    fun retour() {
+        val e = ecran
+        detail = null
+        ecran = when {
+            e is Ecran.MaterielForm && e.id != null -> Ecran.MaterielDetail(e.id)
+            e is Ecran.Scan || e is Ecran.MaterielForm || e is Ecran.MaterielDetail -> Ecran.Parc
+            e is Ecran.Detail || e is Ecran.Declarer -> origine
+            else -> Ecran.Liste
+        }
+        when (ecran) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); else -> {} }
+    }
+
+    /** L'agent IT voit les actions d'équipe (note interne, affectation, statut) sur les pannes qu'il peut gérer. */
+    fun estEquipe(t: Tache) = utilisateur?.voitInterventions == true || t.actions.changerStatut || t.actions.affecter
+
+    fun aller(e: Ecran) {
+        ecran = e; detail = null
+        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); else -> {} }
+    }
+
+    // ------------------------------------------------------------------ Interventions
+    fun chargerInterventions() = lancer(chargeur = interventions.isEmpty()) { interventions = repo.interventions(filtre, recherche) }
+    fun choisirFiltre(f: String) { filtre = f; chargerInterventions() }
+    fun rechercherInterventions(q: String) { recherche = q; chargerInterventions() }
+
+    fun chargerAgents() = lancer(chargeur = false) { agents = repo.agents() }
+
+    private fun majDetail(bloc: suspend () -> Tache) = lancer { detail = bloc() }
+
+    fun affecter(agentId: Int, commentaire: String?) { val t = detail ?: return
+        majDetail { repo.affecter(t, agentId, commentaire).also { message = "Panne affectée." } } }
+
+    fun changerStatut(statut: String, motif: String?, relance: String?, commentaire: String?) { val t = detail ?: return
+        majDetail { repo.changerStatut(t, statut, motif, relance, commentaire).also { message = "Statut mis à jour." } } }
+
+    fun commenterEquipe(texte: String, visibleDeclarant: Boolean) { val t = detail ?: return
+        majDetail { repo.commenterEquipe(t.id, texte, visibleDeclarant) } }
+
+    // ------------------------------------------------------------------ Parc
+    fun chargerParc() = lancer(chargeur = parc.isEmpty()) { parc = repo.parc(rechercheParc, statutParc) }
+    fun rechercherParc(q: String, statut: String?) { rechercheParc = q; statutParc = statut; chargerParc() }
+
+    fun ouvrirFiche(id: Int) {
+        ecran = Ecran.MaterielDetail(id); fiche = parc.firstOrNull { it.id == id }; affectations = emptyList(); pannesMateriel = emptyList()
+        lancer(chargeur = fiche == null) {
+            fiche = repo.fiche(id); affectations = repo.affectations(id); pannesMateriel = repo.pannesDuMateriel(id)
+        }
+    }
+
+    fun ouvrirScan() { ecran = Ecran.Scan }
+
+    /** Résultat d'un scan d'étiquette QR (ou saisie d'un numéro de série). */
+    fun codeScanne(code: String) = lancer {
+        try { ouvrirFiche(repo.scanner(code).id) } catch (e: ApiException) {
+            if (e.status == 404) { message = "Aucun matériel ne correspond à ce code."; ecran = Ecran.Parc } else throw e
+        }
+    }
+
+    fun ouvrirFormulaireMateriel(id: Int?) {
+        ecran = Ecran.MaterielForm(id)
+        lancer(chargeur = false) {
+            referentiels = repo.referentiels()
+            if (utilisateur?.peut("utilisateur.lister") == true || utilisateur?.gereParc == true) utilisateursRef = repo.utilisateurs()
+        }
+    }
+
+    fun enregistrerMateriel(id: Int?, champs: kotlinx.serialization.json.JsonObject) = lancer {
+        val f = repo.enregistrerMateriel(id, champs)
+        message = if (id == null) "Matériel ajouté." else "Matériel mis à jour."
+        parc = emptyList()
+        ouvrirFiche(f.id)
+    }
+
+    // ------------------------------------------------------------------ Mise à jour de l'application
+    fun verifierMiseAJour() {
+        viewModelScope.launch {
+            runCatching { repo.config() }.onSuccess { c ->
+                miseAJour = c.takeIf { it.versionCourante.isNotBlank() && versionInferieure(org.parcit.mobile.BuildConfig.VERSION_NAME, it.versionCourante) }
+            }
+        }
+    }
+
+    private fun versionInferieure(a: String, b: String): Boolean {
+        val x = a.split('.').map { it.toIntOrNull() ?: 0 }; val y = b.split('.').map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until maxOf(x.size, y.size)) { val d = (x.getOrElse(i) { 0 }) - (y.getOrElse(i) { 0 }); if (d != 0) return d < 0 }
+        return false
+    }
+
 
     fun declarer(titre: String, description: String, priorite: String, serviceId: Int?, materielId: Int?) = lancer {
         val envoyee = repo.declarer(titre, description, priorite, serviceId, materielId)
