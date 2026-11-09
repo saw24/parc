@@ -11,16 +11,16 @@ import androidx.compose.ui.unit.sp
 
 private val Claire = lightColorScheme(
     primary = Color(0xFF1D4ED8), onPrimary = Color.White,
-    primaryContainer = Color(0xFFDCE6FF), onPrimaryContainer = Color(0xFF0B2A7A),
+    primaryContainer = Color(0xFFD3E0FF), onPrimaryContainer = Color(0xFF0B2A7A),
     secondary = Color(0xFF475569), onSecondary = Color.White,
     secondaryContainer = Color(0xFFE2E8F0), onSecondaryContainer = Color(0xFF1E293B),
     tertiary = Color(0xFF0F766E), tertiaryContainer = Color(0xFFCCFBF1), onTertiaryContainer = Color(0xFF042F2E),
-    background = Color(0xFFE7EDF7), onBackground = Color(0xFF0F172A),
-    surface = Color(0xFFE7EDF7), onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFEAEFF7), onSurfaceVariant = Color(0xFF5B6678),
+    background = Color(0xFFF1F4FA), onBackground = Color(0xFF0F172A),
+    surface = Color(0xFFF1F4FA), onSurface = Color(0xFF0F172A),
+    surfaceVariant = Color(0xFFE4EAF4), onSurfaceVariant = Color(0xFF5B6678),
     surfaceContainerLowest = Color.White, surfaceContainerLow = Color.White,
-    surfaceContainer = Color(0xFFFFFFFF), surfaceContainerHigh = Color(0xFFD8E2F2), surfaceContainerHighest = Color(0xFFCCD9EE),
-    outline = Color(0xFFA9B6CC), outlineVariant = Color(0xFFD3DDEC),
+    surfaceContainer = Color(0xFFFFFFFF), surfaceContainerHigh = Color(0xFFE9EEF7), surfaceContainerHighest = Color(0xFFDDE5F2),
+    outline = Color(0xFFB4C0D3), outlineVariant = Color(0xFFDCE4F0),
     error = Color(0xFFDC2626), onError = Color.White, errorContainer = Color(0xFFFEE2E2), onErrorContainer = Color(0xFF7F1D1D),
 )
 
