@@ -1,67 +1,61 @@
 package org.parcit.mobile.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Assignment
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import org.parcit.mobile.AppViewModel
+import org.parcit.mobile.BuildConfig
 import org.parcit.mobile.Ecran
-import org.parcit.mobile.principal
 import org.parcit.mobile.data.*
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
+import org.parcit.mobile.principal
 
-@Composable
-fun ParcTheme(content: @Composable () -> Unit) = MaterialTheme(
-    colorScheme = lightColorScheme(primary = Color(0xFF1F5FBF)), content = content,
-)
-
-fun dateLisible(iso: String?): String = try {
-    OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault())
-        .format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
-} catch (e: Exception) { "" }
-
-@Composable
-private fun couleurStatut(s: String) = when (s) {
-    "Terminé" -> Color(0xFF2E7D32); "En cours" -> Color(0xFF1F5FBF); "En attente" -> Color(0xFFEF6C00)
-    "Annulé" -> Color(0xFF757575); else -> Color(0xFFC62828)
-}
-
-@Composable
-fun Pastille(texte: String, couleur: Color) = Surface(color = couleur.copy(alpha = .14f), shape = MaterialTheme.shapes.small) {
-    Text(texte, color = couleur, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Root(vm: AppViewModel) {
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(vm.message) { vm.message?.let { snack.showSnackbar(it); vm.messageLu() } }
     val u = vm.utilisateur
-    Scaffold(snackbarHost = { SnackbarHost(snack) }, bottomBar = {
-        if (u != null && vm.ecran.principal) NavigationBar {
-            NavigationBarItem(vm.ecran == Ecran.Liste, { vm.aller(Ecran.Liste) }, { Text("●") }, label = { Text("Mes pannes") })
-            if (u.voitInterventions) NavigationBarItem(vm.ecran == Ecran.Interventions, { vm.aller(Ecran.Interventions) }, { Text("●") }, label = { Text("Interventions") })
-            if (u.voitParc) NavigationBarItem(vm.ecran == Ecran.Parc, { vm.aller(Ecran.Parc) }, { Text("●") }, label = { Text("Parc") })
-            NavigationBarItem(vm.ecran == Ecran.Notifications, { vm.aller(Ecran.Notifications) },
-                { BadgedBox({ if (vm.nonLues > 0) Badge { Text("${vm.nonLues}") } }) { Text("●") } }, label = { Text("Alertes") })
-        }
-    }) { pad ->
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snack) },
+        bottomBar = {
+            if (u != null && vm.ecran.principal) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                @Composable fun onglet(e: Ecran, icone: ImageVector, texte: String, badge: Int = 0) = NavigationBarItem(
+                    vm.ecran == e, { vm.aller(e) },
+                    { BadgedBox({ if (badge > 0) Badge { Text("$badge") } }) { Icon(icone, texte) } }, label = { Text(texte) },
+                )
+                onglet(Ecran.Liste, Icons.Rounded.Build, "Mes pannes")
+                if (u.voitInterventions) onglet(Ecran.Interventions, Icons.AutoMirrored.Rounded.Assignment, "Interventions")
+                if (u.voitParc) onglet(Ecran.Parc, Icons.Rounded.Computer, "Parc")
+                onglet(Ecran.Notifications, Icons.Rounded.Notifications, "Alertes", vm.nonLues)
+            }
+        },
+    ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
-            if (vm.utilisateur == null) EcranConnexion(vm)
+            if (u == null) EcranConnexion(vm)
             else when (val e = vm.ecran) {
                 Ecran.Liste -> EcranListe(vm)
                 Ecran.Declarer -> { BackHandler { vm.retour() }; EcranDeclarer(vm) }
@@ -74,11 +68,11 @@ fun Root(vm: AppViewModel) {
                 is Ecran.Detail -> { BackHandler { vm.retour() }; EcranDetail(vm) }
             }
             vm.alerte?.let { n ->
-                AlertDialog(onDismissRequest = { vm.fermerAlerte() },
+                AlertDialog(onDismissRequest = { vm.fermerAlerte() }, icon = { Icon(iconeNotification(n.type), null) },
                     title = { Text(n.titre) }, text = { Text(n.message) },
                     confirmButton = {
-                        if (n.peutPrendre) TextButton({ vm.prendre(n.tache.id) }) { Text("Je prends") }
-                        else TextButton({ vm.ouvrirNotification(n) }) { Text("Voir") }
+                        if (n.peutPrendre) Button({ vm.prendre(n.tache.id) }) { Text("Je prends") }
+                        else Button({ vm.ouvrirNotification(n) }) { Text("Voir") }
                     },
                     dismissButton = {
                         Row {
@@ -92,81 +86,179 @@ fun Root(vm: AppViewModel) {
     }
 }
 
+// ------------------------------------------------------------------ Connexion
+
 @Composable
 fun EcranConnexion(vm: AppViewModel) {
     var serveur by remember { mutableStateOf(vm.serveur) }
+    var serveurOuvert by remember { mutableStateOf(vm.serveur == BuildConfig.DEFAULT_SERVER) }
     var login by remember { mutableStateOf("") }
     var mdp by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).imePadding(), verticalArrangement = Arrangement.Center) {
-        Text("Parc IT", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
-        Text("Déclarez et suivez vos pannes", style = MaterialTheme.typography.bodyLarge)
+    var visible by remember { mutableStateOf(false) }
+    val pret = !vm.chargement && login.isNotBlank() && mdp.isNotBlank() && serveur.isNotBlank()
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).imePadding(),
+        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(32.dp))
+        Surface(color = MaterialTheme.colorScheme.primary, shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.size(84.dp)) {
+            Icon(Icons.Rounded.Computer, null, Modifier.padding(22.dp), tint = MaterialTheme.colorScheme.onPrimary)
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Parc IT", style = MaterialTheme.typography.headlineMedium)
+        Text("Déclarez et suivez vos pannes", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(32.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Champ(login, { login = it }, "Identifiant", icone = Icons.Rounded.Person)
+            OutlinedTextField(
+                mdp, { mdp = it }, Modifier.fillMaxWidth(), label = { Text("Mot de passe") }, singleLine = true, shape = MaterialTheme.shapes.medium,
+                leadingIcon = { Icon(Icons.Rounded.Lock, null) },
+                trailingIcon = { IconButton({ visible = !visible }) { Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, "Afficher le mot de passe") } },
+                visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer, unfocusedBorderColor = MaterialTheme.colorScheme.outline),
+            )
+            if (serveurOuvert) Champ(serveur, { serveur = it }, "Adresse du serveur", icone = Icons.Rounded.Language)
+            BoutonPrincipal("Se connecter", { vm.connecter(serveur, login, mdp) }, enabled = pret)
+            TextButton({ serveurOuvert = !serveurOuvert }, Modifier.align(Alignment.CenterHorizontally)) {
+                Text(if (serveurOuvert) "Masquer le serveur" else "Serveur : ${serveur.removePrefix("https://").removePrefix("http://")}")
+            }
+        }
         Spacer(Modifier.height(24.dp))
-        OutlinedTextField(serveur, { serveur = it }, label = { Text("Adresse du serveur") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(login, { login = it }, label = { Text("Identifiant") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(mdp, { mdp = it }, label = { Text("Mot de passe") }, singleLine = true,
-            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(16.dp))
-        Button({ vm.connecter(serveur, login, mdp) }, enabled = !vm.chargement && login.isNotBlank() && mdp.isNotBlank() && serveur.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()) { Text("Se connecter") }
     }
 }
+
+// ------------------------------------------------------------------ Mes pannes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EcranListe(vm: AppViewModel) {
+    var onglet by remember { mutableIntStateOf(0) }   // 0 ouvertes, 1 terminées, 2 toutes
     var menu by remember { mutableStateOf(false) }
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("Mes pannes") }, actions = {
-                TextButton({ vm.actualiser() }) { Text("Actualiser") }
+    var rafraichit by remember { mutableStateOf(false) }
+    LaunchedEffect(rafraichit) { if (rafraichit) { vm.actualiser(); delay(900); rafraichit = false } }
+    val ouvert = { t: Tache -> t.statut != "Terminé" && t.statut != "Annulé" }
+    val visibles = when (onglet) { 0 -> vm.taches.filter(ouvert); 1 -> vm.taches.filterNot(ouvert); else -> vm.taches }
+    val prenom = vm.utilisateur?.nom?.substringBefore(' ') ?: ""
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            EnTete("Bonjour $prenom", "Suivez l'état de vos déclarations", actions = {
                 Box {
-                    TextButton({ menu = true }) { Text(vm.utilisateur?.nom ?: "Compte") }
+                    IconButton({ menu = true }) { Avatar(vm.utilisateur?.nom, 36) }
                     DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem(text = { Text("Se déconnecter") }, onClick = { menu = false; vm.deconnecter() })
+                        Text(vm.utilisateur?.nom ?: "", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.titleSmall)
+                        Text(vm.utilisateur?.role ?: "", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        DropdownMenuItem(text = { Text("Se déconnecter") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
+                            onClick = { menu = false; vm.deconnecter() })
                     }
                 }
             })
-        },
-        floatingActionButton = { ExtendedFloatingActionButton({ vm.ouvrirFormulaire() }) { Text("+ Déclarer une panne") } },
-    ) { pad ->
-        LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            vm.miseAJour?.let { c -> item { BandeauMiseAJour(c) } }
-            items(vm.brouillons, key = { it.uuid }) { b ->
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF4E5))) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(b.titre, style = MaterialTheme.typography.titleMedium)
-                        Text(b.erreur?.let { "Refusée : $it" } ?: "En attente d'envoi (réseau indisponible)", style = MaterialTheme.typography.bodySmall)
-                        Row {
-                            if (b.erreur == null) TextButton({ vm.reessayer(b.uuid) }) { Text("Réessayer") }
-                            TextButton({ vm.abandonner(b.uuid) }) { Text("Abandonner") }
+            PullToRefreshBox(false, { rafraichit = true }, Modifier.weight(1f)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    vm.miseAJour?.let { c -> item { BandeauMiseAJour(c) } }
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Stat("Ouvertes", vm.taches.count(ouvert), couleurStatutPublic("En cours"), Modifier.weight(1f))
+                            Stat("En attente", vm.taches.count { it.statut == "En attente" }, couleurStatutPublic("En attente"), Modifier.weight(1f))
+                            Stat("Terminées", vm.taches.count { it.statut == "Terminé" }, couleurStatutPublic("Terminé"), Modifier.weight(1f))
                         }
                     }
-                }
-            }
-            if (vm.taches.isEmpty() && vm.brouillons.isEmpty() && !vm.chargement)
-                item { Text("Aucune panne déclarée pour le moment.", Modifier.padding(16.dp)) }
-            items(vm.taches, key = { it.id }) { t ->
-                Card(onClick = { vm.ouvrirDetail(t.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Pastille(t.statut, couleurStatut(t.statut))
-                            Text(t.reference ?: "", style = MaterialTheme.typography.labelMedium)
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Ouvertes", "Terminées", "Toutes").forEachIndexed { i, l -> FilterChip(onglet == i, { onglet = i }, { Text(l) }) }
                         }
-                        Text(t.titre, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            when {
-                                t.assigne != null && !t.enFile -> "Pris en charge par ${t.assigne.nom}"
-                                t.statut == "Terminé" || t.statut == "Annulé" -> ""
-                                else -> "En attente de prise en charge"
-                            }, style = MaterialTheme.typography.bodySmall,
-                        )
                     }
+                    items(vm.brouillons, key = { it.uuid }) { b ->
+                        Carte(couleur = MaterialTheme.colorScheme.tertiaryContainer) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(if (b.erreur == null) Icons.Rounded.CloudOff else Icons.Rounded.ErrorOutline, null, Modifier.size(18.dp))
+                                    Text(b.titre, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Text(b.erreur?.let { "Refusée : $it" } ?: "En attente d'envoi : sera envoyée dès le retour du réseau.", style = MaterialTheme.typography.bodySmall)
+                                Row {
+                                    if (b.erreur == null) TextButton({ vm.reessayer(b.uuid) }) { Text("Réessayer") }
+                                    TextButton({ vm.abandonner(b.uuid) }) { Text("Abandonner") }
+                                }
+                            }
+                        }
+                    }
+                    if (visibles.isEmpty() && vm.brouillons.isEmpty() && !vm.chargement) item {
+                        if (vm.taches.isEmpty()) EtatVide(Icons.Rounded.CheckCircle, "Aucune panne déclarée", "Quelque chose ne fonctionne pas ? Touchez « Déclarer une panne ».")
+                        else EtatVide(Icons.Rounded.Inbox, "Rien dans cette liste")
+                    }
+                    items(visibles, key = { it.id }) { t -> CartePanne(t) { vm.ouvrirDetail(t.id) } }
                 }
             }
         }
+        ExtendedFloatingActionButton(
+            text = { Text("Déclarer une panne") }, icon = { Icon(Icons.Rounded.Add, null) },
+            onClick = { vm.ouvrirFormulaire() }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
     }
 }
+
+@Composable
+private fun Stat(libelle: String, valeur: Int, couleur: Color, modifier: Modifier) = Surface(
+    modifier, color = couleur.copy(alpha = .12f), shape = MaterialTheme.shapes.medium,
+) {
+    Column(Modifier.padding(12.dp)) {
+        Text("$valeur", style = MaterialTheme.typography.headlineSmall, color = couleur)
+        Text(libelle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Carte d'une panne, avec un liseré de couleur selon la priorité. */
+@Composable
+fun CartePanne(t: Tache, extra: @Composable ColumnScope.() -> Unit = {}, onClick: () -> Unit) = Carte(onClick = onClick) {
+    Row(Modifier.height(IntrinsicSize.Min)) {
+        Box(Modifier.width(5.dp).fillMaxHeight().background(couleurPriorite(t.priorite)))
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PuceStatut(t.statut)
+                if (t.sla.retardPriseEnCharge || t.sla.retardResolution) Puce("En retard", MaterialTheme.colorScheme.error, icone = Icons.Rounded.Schedule)
+                Spacer(Modifier.weight(1f))
+                Text(t.reference ?: "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(t.titre, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val ligne = when {
+                t.assigne != null && !t.enFile -> "Pris en charge par ${t.assigne.nom}"
+                t.statut == "Terminé" -> "Résolue"
+                t.statut == "Annulé" -> "Annulée"
+                else -> "En attente de prise en charge"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Rounded.Person, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(ligne, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                Text(dateRelative(t.updatedAt ?: t.dates.creation), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            extra()
+        }
+    }
+}
+
+@Composable
+fun BandeauMiseAJour(c: Config) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    Carte(couleur = MaterialTheme.colorScheme.primaryContainer) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Rounded.SystemUpdate, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Column(Modifier.weight(1f)) {
+                Text("Version ${c.versionCourante} disponible", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                c.notes?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer) }
+            }
+            if (!c.apkUrl.isNullOrBlank()) FilledTonalButton({
+                runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(c.apkUrl))) }
+            }) { Text("Télécharger") }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ Déclaration
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -176,77 +268,94 @@ fun EcranDeclarer(vm: AppViewModel) {
     var prio by remember { mutableStateOf("Moyenne") }
     var service by remember { mutableStateOf<Service?>(vm.utilisateur?.service) }
     var materiel by remember { mutableStateOf(vm.materielPrefill) }
-    Scaffold(topBar = { TopAppBar(title = { Text("Déclarer une panne") }, navigationIcon = { TextButton({ vm.retour() }) { Text("Retour") } }) }) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(titre, { titre = it }, label = { Text("Objet de la panne *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(desc, { desc = it }, label = { Text("Description") }, minLines = 4, modifier = Modifier.fillMaxWidth())
-            Choix("Priorité", vm.referentiels.priorites, prio, { it }) { prio = it ?: prio }
-            Choix("Service", vm.referentiels.services, service, { it.nom }, optionnel = true) { service = it }
+    Column(Modifier.fillMaxSize()) {
+        EnTete("Déclarer une panne", retour = { vm.retour() })
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Champ(titre, { titre = it }, "Que se passe-t-il ? *")
+            Champ(desc, { desc = it }, "Détails (facultatif)", minLignes = 4)
+            Text("Urgence", style = MaterialTheme.typography.titleSmall)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                val niveaux = vm.referentiels.priorites
+                niveaux.forEachIndexed { i, p ->
+                    SegmentedButton(prio == p, { prio = p }, SegmentedButtonDefaults.itemShape(i, niveaux.size), label = { Text(p) })
+                }
+            }
+            Choix("Service concerné", vm.referentiels.services, service, { it.nom }, optionnel = true) { service = it }
             if (vm.materiels.isNotEmpty() || vm.materielPrefill != null)
                 Choix("Matériel concerné", (vm.materiels + listOfNotNull(vm.materielPrefill)).distinctBy { it.id }, materiel, { it.libelle }, optionnel = true) { materiel = it }
-            Button({ vm.declarer(titre.trim(), desc.trim(), prio, service?.id, materiel?.id) }, enabled = titre.isNotBlank() && !vm.chargement,
-                modifier = Modifier.fillMaxWidth()) { Text("Envoyer") }
+        }
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
+            Box(Modifier.padding(16.dp)) {
+                BoutonPrincipal("Envoyer la déclaration", { vm.declarer(titre.trim(), desc.trim(), prio, service?.id, materiel?.id) },
+                    enabled = titre.isNotBlank() && !vm.chargement, icone = Icons.AutoMirrored.Rounded.Send)
+            }
         }
     }
 }
 
-/** Liste déroulante simple ; [optionnel] ajoute une entrée « Aucun ». */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun <T> Choix(label: String, options: List<T>, valeur: T?, texte: (T) -> String, optionnel: Boolean = false, onChoix: (T?) -> Unit) {
-    var ouvert by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(ouvert, { ouvert = it }) {
-        OutlinedTextField(valeur?.let(texte) ?: "Aucun", {}, readOnly = true, label = { Text(label) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(ouvert) },
-            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth())
-        ExposedDropdownMenu(ouvert, { ouvert = false }) {
-            if (optionnel) DropdownMenuItem({ Text("Aucun") }, { onChoix(null); ouvert = false })
-            options.forEach { o -> DropdownMenuItem({ Text(texte(o)) }, { onChoix(o); ouvert = false }) }
-        }
-    }
-}
+// ------------------------------------------------------------------ Détail
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EcranDetail(vm: AppViewModel) {
     val t = vm.detail
     var commentaire by remember { mutableStateOf("") }
     var confirmer by remember { mutableStateOf(false) }
-    Scaffold(topBar = { TopAppBar(title = { Text(t?.reference ?: "Panne") }, navigationIcon = { TextButton({ vm.retour() }) { Text("Retour") } }) }) { pad ->
-        if (t == null) { Box(Modifier.padding(pad).fillMaxSize()); return@Scaffold }
-        Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(t.titre, style = MaterialTheme.typography.headlineSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Pastille(t.statut, couleurStatut(t.statut)); Pastille("Priorité ${t.priorite}", Color.DarkGray) }
-            Text(when {
-                t.assigne != null && !t.enFile -> "Pris en charge par ${t.assigne.nom}"
-                t.statut == "Terminé" || t.statut == "Annulé" -> "Clôturée"
-                else -> "En attente de prise en charge par le service IT"
-            }, style = MaterialTheme.typography.titleSmall)
-            if (!t.description.isNullOrBlank()) Text(t.description)
-            t.materiel?.libelle?.let { Text("Matériel : $it") }
-            t.service?.let { Text("Service : $it") }
-            if (t.statut == "En attente" && !t.motifAttente.isNullOrBlank()) Text("Motif d'attente : ${t.motifAttente}")
-            HorizontalDivider()
-            Text("Historique", style = MaterialTheme.typography.titleMedium)
-            t.evenements.forEach { e ->
-                Column {
-                    Text(libelleEvenement(e), style = MaterialTheme.typography.bodyMedium)
-                    Text(dateLisible(e.createdAt), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+    Column(Modifier.fillMaxSize()) {
+        EnTete(t?.reference ?: "Panne", retour = { vm.retour() })
+        if (t == null) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return@Column }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Carte {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PuceStatut(t.statut)
+                        Puce("Priorité ${t.priorite}", couleurPriorite(t.priorite))
+                        if (t.sla.retardPriseEnCharge || t.sla.retardResolution) Puce("En retard", MaterialTheme.colorScheme.error, icone = Icons.Rounded.Schedule)
+                    }
+                    Text(t.titre, style = MaterialTheme.typography.headlineSmall)
+                    if (!t.description.isNullOrBlank()) Text(t.description, style = MaterialTheme.typography.bodyLarge)
                 }
             }
-            if (t.actions.commenter && !vm.estEquipe(t)) {
-                OutlinedTextField(commentaire, { commentaire = it }, label = { Text("Ajouter un commentaire") }, modifier = Modifier.fillMaxWidth())
-                Button({ vm.commenter(commentaire.trim()); commentaire = "" }, enabled = commentaire.isNotBlank() && !vm.chargement) { Text("Envoyer le commentaire") }
+            Carte {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (t.assigne != null && !t.enFile) {
+                            Avatar(t.assigne.nom, 40)
+                            Column { Text("Prise en charge par", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(t.assigne.nom ?: "", style = MaterialTheme.typography.titleSmall) }
+                        } else {
+                            val fini = t.statut == "Terminé" || t.statut == "Annulé"
+                            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = CircleShape, modifier = Modifier.size(40.dp)) {
+                                Icon(if (fini) Icons.Rounded.CheckCircle else Icons.Rounded.HourglassTop, null, Modifier.padding(10.dp))
+                            }
+                            Text(if (fini) "Clôturée" else "En attente de prise en charge par le service IT", style = MaterialTheme.typography.titleSmall)
+                        }
+                    }
+                    LigneInfo(Icons.Rounded.Person, "Déclarée par", t.declarant?.nom)
+                    LigneInfo(Icons.Rounded.Computer, "Matériel", t.materiel?.libelle)
+                    LigneInfo(Icons.Rounded.Business, "Service", t.service)
+                    LigneInfo(Icons.Rounded.Schedule, "Déclarée", dateLisible(t.dates.creation))
+                    if (t.statut == "En attente") LigneInfo(Icons.Rounded.HourglassTop, "Motif d'attente", t.motifAttente)
+                }
             }
             ActionsAgent(vm, t)
-            if (t.actions.prendre) Button({ vm.prendre(t.id) }, enabled = !vm.chargement, modifier = Modifier.fillMaxWidth()) { Text("Je prends cette panne") }
-            if (t.actions.annuler) OutlinedButton({ confirmer = true }) { Text("Annuler cette panne") }
+            if (t.actions.prendre) BoutonPrincipal("Je prends cette panne", { vm.prendre(t.id) }, enabled = !vm.chargement, icone = Icons.Rounded.PanTool)
+            if (t.evenements.isNotEmpty()) {
+                Titre("Historique")
+                Carte { Column(Modifier.padding(16.dp)) { Frise(t.evenements, ::libelleEvenement) } }
+            }
+            if (t.actions.commenter && !vm.estEquipe(t)) {
+                Titre("Ajouter un message")
+                Champ(commentaire, { commentaire = it }, "Votre message", minLignes = 2)
+                BoutonSecondaire("Envoyer", { vm.commenter(commentaire.trim()); commentaire = "" }, enabled = commentaire.isNotBlank() && !vm.chargement, icone = Icons.AutoMirrored.Rounded.Send)
+            }
+            if (t.actions.annuler) TextButton({ confirmer = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Annuler cette panne")
+            }
         }
-        if (confirmer) AlertDialog(onDismissRequest = { confirmer = false },
-            title = { Text("Annuler la panne ?") }, text = { Text("Le service IT sera informé que la panne est annulée.") },
-            confirmButton = { TextButton({ confirmer = false; vm.annuler("Annulée par le déclarant") }) { Text("Annuler la panne") } },
-            dismissButton = { TextButton({ confirmer = false }) { Text("Garder") } })
     }
+    if (confirmer) AlertDialog(onDismissRequest = { confirmer = false },
+        title = { Text("Annuler la panne ?") }, text = { Text("Le service IT sera informé que la panne est annulée.") },
+        confirmButton = { TextButton({ confirmer = false; vm.annuler("Annulée par le déclarant") }) { Text("Annuler la panne") } },
+        dismissButton = { TextButton({ confirmer = false }) { Text("Garder") } })
 }
 
 private fun libelleEvenement(e: Evenement): String {
@@ -261,51 +370,54 @@ private fun libelleEvenement(e: Evenement): String {
     } + if (e.type != "commentaire" && !e.commentaire.isNullOrBlank()) "\n« ${e.commentaire} »" else ""
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EcranNotifications(vm: AppViewModel) {
-    val prefs = vm.utilisateur?.notifications
-    Scaffold(topBar = {
-        TopAppBar(title = { Text("Alertes") }, navigationIcon = { TextButton({ vm.retour() }) { Text("Retour") } },
-            actions = { if (vm.nonLues > 0) TextButton({ vm.toutMarquerLu() }) { Text("Tout lire") } })
-    }) { pad ->
-        LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (prefs != null) item {
-                Card { Column(Modifier.padding(12.dp)) {
-                    Text("Me prévenir aussi par", style = MaterialTheme.typography.titleSmall)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(prefs.email, { vm.preferences(it, prefs.sms) }); Spacer(Modifier.width(8.dp)); Text("E-mail")
-                        Spacer(Modifier.width(24.dp))
-                        Switch(prefs.sms, { vm.preferences(prefs.email, it) }); Spacer(Modifier.width(8.dp)); Text("SMS")
-                    }
-                    Text("Les alertes dans l'application restent toujours actives.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                } }
-            }
-            if (vm.notifications.isEmpty()) item { Text("Aucune alerte pour le moment.", Modifier.padding(16.dp)) }
-            items(vm.notifications, key = { it.id }) { n ->
-                Card(onClick = { vm.ouvrirNotification(n) }, modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = if (n.lue) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer)) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(n.titre, style = MaterialTheme.typography.titleSmall)
-                        Text(n.message, style = MaterialTheme.typography.bodyMedium)
-                        Text(dateLisible(n.createdAt), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                        if (n.peutPrendre) Button({ vm.prendre(n.tache.id) }, enabled = !vm.chargement) { Text("Je prends") }
-                    }
-                }
-            }
-        }
-    }
+// ------------------------------------------------------------------ Alertes
+
+fun iconeNotification(type: String): ImageVector = when (type) {
+    "nouvelle" -> Icons.Rounded.ReportProblem; "prise_en_charge" -> Icons.Rounded.Build
+    "affectee", "affectation" -> Icons.Rounded.PersonAdd; "statut" -> Icons.Rounded.SwapHoriz
+    "commentaire" -> Icons.Rounded.ChatBubble; else -> Icons.Rounded.Notifications
 }
 
 @Composable
-fun BandeauMiseAJour(c: Config) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-        Column(Modifier.padding(12.dp)) {
-            Text("Nouvelle version ${c.versionCourante} disponible", style = MaterialTheme.typography.titleSmall)
-            c.notes?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if (!c.apkUrl.isNullOrBlank())
-                TextButton({ runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(c.apkUrl))) } }) { Text("Télécharger l'APK") }
+fun EcranNotifications(vm: AppViewModel) {
+    val prefs = vm.utilisateur?.notifications
+    Column(Modifier.fillMaxSize()) {
+        EnTete("Alertes", if (vm.nonLues > 0) "${vm.nonLues} non lue(s)" else "Tout est à jour", actions = {
+            if (vm.nonLues > 0) TextButton({ vm.toutMarquerLu() }) { Text("Tout lire") }
+        })
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (prefs != null) item {
+                Carte {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Me prévenir aussi par", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(prefs.email, { vm.preferences(it, prefs.sms) }); Spacer(Modifier.width(8.dp)); Text("E-mail")
+                            Spacer(Modifier.width(24.dp))
+                            Switch(prefs.sms, { vm.preferences(prefs.email, it) }); Spacer(Modifier.width(8.dp)); Text("SMS")
+                        }
+                        Text("Les alertes dans l'application restent toujours actives.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (vm.notifications.isEmpty()) item { EtatVide(Icons.Rounded.Notifications, "Aucune alerte", "Vous serez prévenu ici de chaque évolution de vos pannes.") }
+            items(vm.notifications, key = { it.id }) { n ->
+                Carte(onClick = { vm.ouvrirNotification(n) }, couleur = if (n.lue) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f)) {
+                    Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape, modifier = Modifier.size(40.dp)) {
+                            Icon(iconeNotification(n.type), null, Modifier.padding(10.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(n.titre, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                if (!n.lue) Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                            }
+                            Text(n.message, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            Text(dateRelative(n.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (n.peutPrendre) BoutonSecondaire("Je prends", { vm.prendre(n.tache.id) }, enabled = !vm.chargement, icone = Icons.Rounded.PanTool)
+                        }
+                    }
+                }
+            }
         }
     }
 }

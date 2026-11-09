@@ -31,3 +31,10 @@ Selon `actions` renvoyées par le serveur : **Je prends**, **Affecter** (liste d
 - L'installation de la mise à jour passe par le navigateur (pas de téléchargement/installation silencieux dans l'application).
 - Non testé sur appareil : la caméra, les écrans agent et le parc compilent (APK debug et release) mais n'ont pas été exécutés.
 - La suppression de matériel n'est pas proposée sur mobile (usage rare, reste sur le site).
+
+## Refonte de l'interface (novembre 2026)
+- **Thème** (`ui/Theme.kt`) : palette bleue sobre, mode clair **et sombre** automatique, coins arrondis, typographie hiérarchisée, plein écran (barres système transparentes). Couleurs des statuts/priorités centralisées dans `ui/Composants.kt`.
+- **Composants communs** (`ui/Composants.kt`) : cartes, puces de statut, avatars, champs arrondis, frise chronologique de l'historique, états vides, en-têtes avec retour.
+- **Écrans** : connexion épurée (serveur replié), accueil « Bonjour … » avec compteurs et filtres, liseré de priorité sur les cartes, tirer pour actualiser, barre du bas avec icônes et pastille d'alertes, déclaration avec choix d'urgence en boutons segmentés et bouton d'envoi fixe, détail en cartes (état, informations, historique), alertes avec icônes par type, parc avec icône par type d'équipement, scanner avec cadre de visée.
+- **Icône** de l'application redessinée (écran avec coche).
+- Aucun changement de comportement ni d'API. Rendu **non vérifié visuellement** par moi (pas d'appareil) : à valider sur le téléphone, les retouches (espacements, couleurs) sont rapides.

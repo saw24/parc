@@ -3,6 +3,7 @@ package org.parcit.mobile
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -23,6 +24,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 33 && !Alertes.autorise(this)) {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { }.launch(Manifest.permission.POST_NOTIFICATIONS)
         }

@@ -9,8 +9,21 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.QrCode2
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -26,7 +39,6 @@ import org.parcit.mobile.AppViewModel
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Lecture des étiquettes QR du parc (contenu « … | SN:xxx | ID:12 »), avec saisie manuelle du numéro de série en secours. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EcranScan(vm: AppViewModel) {
     val ctx = LocalContext.current
@@ -34,14 +46,24 @@ fun EcranScan(vm: AppViewModel) {
     val demande = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { autorise = it }
     LaunchedEffect(Unit) { if (!autorise) demande.launch(Manifest.permission.CAMERA) }
     var manuel by remember { mutableStateOf("") }
-    Scaffold(topBar = { TopAppBar(title = { Text("Scanner une étiquette") }, navigationIcon = { TextButton({ vm.retour() }) { Text("Retour") } }) }) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (autorise) CameraScan(Modifier.weight(1f).fillMaxWidth()) { vm.codeScanne(it) }
-            else Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp)) { Text("L'accès à la caméra est nécessaire pour scanner. Vous pouvez saisir le numéro de série ci-dessous.") }
-            Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(manuel, { manuel = it }, singleLine = true, label = { Text("Numéro de série") }, modifier = Modifier.weight(1f))
-                Button({ vm.codeScanne(manuel.trim()) }, enabled = manuel.isNotBlank() && !vm.chargement) { Text("Chercher") }
-            }
+    val cadre = Color.White
+    Column(Modifier.fillMaxSize()) {
+        EnTete("Scanner une étiquette", retour = { vm.retour() })
+        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp).clip(MaterialTheme.shapes.large).background(Color.Black)) {
+            if (autorise) {
+                CameraScan(Modifier.fillMaxSize()) { vm.codeScanne(it) }
+                // Cadre de visée
+                Canvas(Modifier.fillMaxSize()) {
+                    val c = minOf(size.width, size.height) * 0.62f
+                    val gauche = (size.width - c) / 2; val haut = (size.height - c) / 2
+                    drawRoundRect(cadre, Offset(gauche, haut), Size(c, c), CornerRadius(28.dp.toPx()), style = Stroke(width = 3.dp.toPx()))
+                }
+                Text("Placez l'étiquette QR dans le cadre", Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            } else EtatVide(Icons.Rounded.QrCodeScanner, "Caméra non autorisée", "Autorisez la caméra, ou saisissez le numéro de série ci-dessous.")
+        }
+        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Champ(manuel, { manuel = it }, "Numéro de série", Modifier.weight(1f), icone = Icons.Rounded.QrCode2)
+            BoutonSecondaire("Chercher", { vm.codeScanne(manuel.trim()) }, enabled = manuel.isNotBlank() && !vm.chargement)
         }
     }
 }

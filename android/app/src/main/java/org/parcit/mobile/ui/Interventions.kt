@@ -5,11 +5,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.parcit.mobile.AppViewModel
 import org.parcit.mobile.data.Tache
@@ -22,91 +23,92 @@ fun EcranInterventions(vm: AppViewModel) {
     var q by remember { mutableStateOf(vm.recherche) }
     LaunchedEffect(Unit) { vm.chargerInterventions() }
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Interventions") }, actions = { TextButton({ vm.chargerInterventions() }) { Text("Actualiser") } })
-        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("file" to "À prendre", "moi" to "Mes tâches", "toutes" to "Toutes").forEach { (k, l) ->
-                FilterChip(vm.filtre == k, { vm.choisirFiltre(k) }, { Text(l) })
+        EnTete("Interventions", "${vm.interventions.size} panne(s)", actions = {
+            IconButton({ vm.chargerInterventions() }) { Icon(Icons.Rounded.Refresh, "Actualiser") }
+        })
+        val filtres = listOf("file" to "À prendre", "moi" to "Mes tâches", "toutes" to "Toutes")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            filtres.forEachIndexed { i, (k, l) ->
+                SegmentedButton(vm.filtre == k, { vm.choisirFiltre(k) }, SegmentedButtonDefaults.itemShape(i, filtres.size), label = { Text(l) })
             }
         }
-        OutlinedTextField(q, { q = it; if (it.isEmpty() || it.length >= 3) vm.rechercherInterventions(it) }, singleLine = true,
-            label = { Text("Rechercher (objet, référence…)") }, modifier = Modifier.fillMaxWidth().padding(12.dp))
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp, 0.dp, 12.dp, 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Champ(q, { q = it; if (it.isEmpty() || it.length >= 3) vm.rechercherInterventions(it) }, "Rechercher (objet, référence…)",
+            Modifier.padding(16.dp, 12.dp, 16.dp, 4.dp), icone = Icons.Rounded.Search)
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (vm.interventions.isEmpty() && !vm.chargement) item {
-                Text(when (vm.filtre) { "file" -> "Aucune panne en attente de prise en charge."; "moi" -> "Aucune tâche ne vous est assignée."; else -> "Aucune panne ouverte." }, Modifier.padding(16.dp))
+                when (vm.filtre) {
+                    "file" -> EtatVide(Icons.Rounded.CheckCircle, "File vide", "Aucune panne en attente de prise en charge.")
+                    "moi" -> EtatVide(Icons.Rounded.Inbox, "Rien à traiter", "Aucune tâche ne vous est assignée.")
+                    else -> EtatVide(Icons.Rounded.Inbox, "Aucune panne ouverte")
+                }
             }
-            items(vm.interventions, key = { it.id }) { t -> CarteIntervention(t, vm) }
+            items(vm.interventions, key = { it.id }) { t ->
+                CartePanne(t, extra = {
+                    val infos = listOfNotNull(t.declarant?.nom?.let { "Par $it" }, t.service, t.materiel?.libelle).joinToString(" · ")
+                    if (infos.isNotBlank()) Text(infos, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (t.actions.prendre) BoutonSecondaire("Je prends", { vm.prendre(t.id) }, enabled = !vm.chargement, icone = Icons.Rounded.PanTool)
+                }) { vm.ouvrirDetail(t.id) }
+            }
         }
     }
-}
-
-@Composable
-private fun CarteIntervention(t: Tache, vm: AppViewModel) {
-    Card(onClick = { vm.ouvrirDetail(t.id) }, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Pastille(t.statut, couleurStatutPublic(t.statut))
-                Pastille(t.priorite, if (t.priorite == "Haute") Color(0xFFC62828) else Color.DarkGray)
-                if (t.sla.retardPriseEnCharge || t.sla.retardResolution) Pastille("En retard", Color(0xFFC62828))
-                Text(t.reference ?: "", style = MaterialTheme.typography.labelMedium)
-            }
-            Text(t.titre, style = MaterialTheme.typography.titleMedium)
-            Text(listOfNotNull(t.declarant?.nom?.let { "Par $it" }, t.service, t.materiel?.libelle).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-            if (t.assigne != null && !t.enFile) Text("Assignée à ${t.assigne.nom}", style = MaterialTheme.typography.bodySmall)
-            if (t.actions.prendre) Button({ vm.prendre(t.id) }, enabled = !vm.chargement) { Text("Je prends") }
-        }
-    }
-}
-
-fun couleurStatutPublic(s: String) = when (s) {
-    "Terminé" -> Color(0xFF2E7D32); "En cours" -> Color(0xFF1F5FBF); "En attente" -> Color(0xFFEF6C00)
-    "Annulé" -> Color(0xFF757575); else -> Color(0xFFC62828)
 }
 
 /** Boutons d'équipe du détail : affecter, changer le statut / rouvrir, note interne. */
 @Composable
 fun ActionsAgent(vm: AppViewModel, t: Tache) {
     var dialogue by remember { mutableStateOf<String?>(null) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (t.actions.affecter) OutlinedButton({ vm.chargerAgents(); dialogue = "affecter" }) { Text("Affecter") }
-            if (t.actions.changerStatut) OutlinedButton({ dialogue = "statut" }) { Text("Changer le statut") }
-            else if (t.actions.rouvrir) OutlinedButton({ dialogue = "statut" }) { Text("Rouvrir") }
-        }
-        if (vm.estEquipe(t) && t.actions.commenter) {
-            var texte by remember(t.id) { mutableStateOf("") }
-            var interne by remember(t.id) { mutableStateOf(true) }
-            OutlinedTextField(texte, { texte = it }, label = { Text("Commentaire") }, minLines = 2, modifier = Modifier.fillMaxWidth())
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(interne, { interne = it }); Text("Note interne (invisible du déclarant)")
+    val boutons = t.actions.affecter || t.actions.changerStatut || t.actions.rouvrir
+    val note = vm.estEquipe(t) && t.actions.commenter
+    if (boutons || note) Carte {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Actions", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (t.actions.affecter) BoutonSecondaire("Affecter", { vm.chargerAgents(); dialogue = "affecter" }, icone = Icons.Rounded.PersonAdd)
+                if (t.actions.changerStatut) BoutonSecondaire("Statut", { dialogue = "statut" }, icone = Icons.Rounded.SwapHoriz)
+                else if (t.actions.rouvrir) BoutonSecondaire("Rouvrir", { dialogue = "statut" }, icone = Icons.Rounded.Replay)
             }
-            Button({ vm.commenterEquipe(texte.trim(), !interne); texte = "" }, enabled = texte.isNotBlank() && !vm.chargement) { Text("Ajouter") }
+            if (note) {
+                var texte by remember(t.id) { mutableStateOf("") }
+                var interne by remember(t.id) { mutableStateOf(true) }
+                Champ(texte, { texte = it }, "Commentaire", minLignes = 2)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(interne, { interne = it }); Text("Note interne (invisible du déclarant)", style = MaterialTheme.typography.bodyMedium)
+                }
+                BoutonSecondaire("Ajouter", { vm.commenterEquipe(texte.trim(), !interne); texte = "" }, enabled = texte.isNotBlank() && !vm.chargement)
+            }
         }
     }
     when (dialogue) {
-        "affecter" -> DialogueAffecter(vm, t) { dialogue = null }
+        "affecter" -> DialogueAffecter(vm) { dialogue = null }
         "statut" -> DialogueStatut(vm, t) { dialogue = null }
     }
 }
 
 @Composable
-private fun DialogueAffecter(vm: AppViewModel, t: Tache, fermer: () -> Unit) {
+private fun DialogueAffecter(vm: AppViewModel, fermer: () -> Unit) {
     var commentaire by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = fermer, title = { Text("Affecter à") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                if (vm.agents.isEmpty()) Text("Chargement…")
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (vm.agents.isEmpty()) Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 vm.agents.forEach { a ->
-                    TextButton({ vm.affecter(a.id, commentaire.ifBlank { null }); fermer() }, Modifier.fillMaxWidth()) {
-                        Text(if (a.fileCommune) "${a.nom} (remettre en file)" else "${a.nom} — ${a.charge} en cours", Modifier.fillMaxWidth())
+                    Surface(onClick = { vm.affecter(a.id, commentaire.ifBlank { null }); fermer() }, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Avatar(a.nom)
+                            Column(Modifier.weight(1f)) {
+                                Text(a.nom, style = MaterialTheme.typography.titleSmall)
+                                Text(if (a.fileCommune) "Remettre dans la file" else "${a.charge} en cours", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
-                OutlinedTextField(commentaire, { commentaire = it }, label = { Text("Message (facultatif)") }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Champ(commentaire, { commentaire = it }, "Message (facultatif)")
             }
         },
         confirmButton = {}, dismissButton = { TextButton(fermer) { Text("Fermer") } })
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DialogueStatut(vm: AppViewModel, t: Tache, fermer: () -> Unit) {
     val choix = listOf("À faire", "En cours", "En attente", "Terminé", "Annulé").filter { it != t.statut }
@@ -119,17 +121,19 @@ private fun DialogueStatut(vm: AppViewModel, t: Tache, fermer: () -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 choix.forEach { s ->
-                    Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(statut == s, { statut = s }); Text(s) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(statut == s, { statut = s }); PuceStatut(s)
+                    }
                 }
                 if (attente) {
-                    OutlinedTextField(motif, { motif = it }, label = { Text("Motif de l'attente *") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(relance, { relance = it }, singleLine = true, label = { Text("Date de relance (AAAA-MM-JJ) *") }, modifier = Modifier.fillMaxWidth())
+                    Champ(motif, { motif = it }, "Motif de l'attente *")
+                    Champ(relance, { relance = it }, "Date de relance (AAAA-MM-JJ) *")
                 }
-                OutlinedTextField(commentaire, { commentaire = it }, label = { Text("Commentaire (facultatif)") }, modifier = Modifier.fillMaxWidth())
+                Champ(commentaire, { commentaire = it }, "Commentaire (facultatif)")
             }
         },
         confirmButton = {
-            TextButton({
+            Button({
                 vm.changerStatut(statut, if (attente) motif.trim() else null, if (attente) relance.trim() else null, commentaire.ifBlank { null }); fermer()
             }, enabled = !attente || (motif.isNotBlank() && Regex("\\d{4}-\\d{2}-\\d{2}").matches(relance.trim()))) { Text("Valider") }
         },
