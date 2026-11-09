@@ -561,11 +561,14 @@ $(document).ready(function () {
                 $('#nom').val(utilisateur.nom);
                 $('#login').val(utilisateur.login);
                 $('#email').val(utilisateur.email);
+                $('#telephone').val(utilisateur.telephone || '');
                 $('#role').val(utilisateur.role);
                 $('#mot_de_passe').val('');
 
                 if (userRole !== 'Administrateur') {
                     $('#role-form-group').hide();
+                    // Le service est géré par un administrateur : on l'affiche sans permettre de le modifier.
+                    $('#service-form-group').hide();
                 }
             },
             error: function () {
@@ -1087,7 +1090,7 @@ $(document).ready(function () {
                 tableBody.empty(); // On vide la table avant de la remplir
 
                 if (data.length === 0) {
-                    tableBody.append('<tr><td colspan="6" style="text-align:center;">Aucun utilisateur trouvé.</td></tr>');
+                    tableBody.append('<tr><td colspan="7" style="text-align:center;">Aucun utilisateur trouvé.</td></tr>');
                 } else {
                     $.each(data, function (index, item) {
                         //console.log("User data from server: " + item);
@@ -1104,6 +1107,7 @@ $(document).ready(function () {
                                 <td>${esc(item.nom)}</td>
                                 <td>${esc(item.login)}</td>
                                 <td>${esc(item.email || '-')}</td>
+                                <td>${esc(item.service || '-')}</td>
                                 <td>${esc(item.role)}</td>
                                 <td>${effBadge}</td>
                                 <td class="actions">
@@ -1477,6 +1481,9 @@ $(document).ready(function () {
                     // Restore previously selected value if it still exists
                     if (currentValue) {
                         tacheServiceSelect.val(currentValue);
+                    } else if (tacheServiceSelect.data('defaut')) {
+                        // Création : service de l'utilisateur connecté (déclenche le filtre du matériel)
+                        tacheServiceSelect.val(tacheServiceSelect.data('defaut')).trigger('change');
                     }
                 }
                 if (materielServiceSelect.length > 0) {
@@ -2251,6 +2258,18 @@ $(document).ready(function () {
                 <label for="mot_de_passe">Mot de passe</label>
                 <input type="password" id="mot_de_passe" name="mot_de_passe" placeholder="Entrez votre mot de passe">
             </div>
+            <div class="form-group">
+                <label for="telephone">Téléphone</label>
+                <input type="tel" id="telephone" name="telephone" placeholder="Ex: +227 90 00 00 00">
+                <div class="field-hint">Utilisé pour les alertes par SMS (si une passerelle SMS est configurée).</div>
+            </div>
+            <div class="form-group" id="service-form-group">
+                <label for="user-service">Service</label>
+                <select id="user-service" name="user-service">
+                    <option value="">— Aucun —</option>
+                </select>
+                <div class="field-hint">Service d'appartenance : proposé par défaut quand l'agent déclare une panne.</div>
+            </div>
             <div class="form-group" id="role-form-group">
                 <label for="role">Rôle</label>
                 <select id="role" name="role">
@@ -2259,6 +2278,21 @@ $(document).ready(function () {
                 </select>
             </div>
         </form>`;
+
+    /** Remplit la liste des services du formulaire utilisateur et sélectionne celui de l'utilisateur. */
+    function chargerServicesUtilisateur(serviceId) {
+        $.ajax({
+            url: '../backend/api/services.php?action=read',
+            type: 'GET',
+            dataType: 'json',
+            success: function (services) {
+                const $sel = $('#user-service');
+                $sel.find('option:not(:first)').remove();
+                services.forEach(function (s) { $sel.append(`<option value="${esc(s.id)}">${esc(s.nom)}</option>`); });
+                $sel.val(serviceId ? String(serviceId) : '');
+            }
+        });
+    }
 
     function openModal(context, mode = 'add') {
         let title = '';
@@ -2295,6 +2329,20 @@ $(document).ready(function () {
         // Recharger les selects selon le contexte
         setTimeout(function() {
             // Date limite par défaut = date du jour lors de la création d'une tâche.
+            if (context === 'utilisateurs' && mode === 'add') {
+                chargerServicesUtilisateur(null);
+            }
+            // Le service de l'utilisateur connecté est proposé par défaut (modifiable) à la création d'une tâche.
+            $('#tache-service').data('defaut', (context === 'taches' && mode === 'add') ? (localStorage.getItem('user_service') || '') : '');
+            // Sessions ouvertes avant l'ajout du service à la connexion : on le récupère une fois.
+            if (context === 'taches' && mode === 'add' && localStorage.getItem('user_service') === null) {
+                $.getJSON('../backend/api/utilisateurs.php?action=read&id=' + encodeURIComponent(localStorage.getItem('user_id')), function (r) {
+                    const nom = (Array.isArray(r) && r[0] && r[0].service) || '';
+                    localStorage.setItem('user_service', nom);
+                    $('#tache-service').data('defaut', nom);
+                    if (nom && !$('#tache-service').val()) { $('#tache-service').val(nom).trigger('change'); }
+                });
+            }
             if (context === 'taches' && mode === 'add') {
                 $('#tache-date-limite').val(new Date().toISOString().slice(0, 10));
             }
@@ -3085,7 +3133,9 @@ $(document).ready(function () {
                     $('#nom').val(utilisateur.nom);
                     $('#login').val(utilisateur.login);
                     $('#email').val(utilisateur.email);
+                    $('#telephone').val(utilisateur.telephone || '');
                     $('#role').val(utilisateur.role);
+                    chargerServicesUtilisateur(utilisateur.service_id);
                     $('#mot_de_passe').val(''); // Ne pas afficher le mot de passe
 
                     //Desactiver le champs login
@@ -3347,6 +3397,11 @@ $(document).ready(function () {
             updated_by_login: localStorage.getItem('user_login') || ''
         };
 
+        // Le service n'est envoyé que s'il est modifiable (champ visible : administrateur).
+        if ($('#service-form-group').is(':visible')) {
+            formData.service_id = $('#user-service').val();
+        }
+
         // Déterminer si c'est une création ou une mise à jour
         const hasId = $(this).find('input[name="id"]').length > 0;
         const action = hasId ? 'update' : 'create';
@@ -3459,6 +3514,7 @@ $(document).ready(function () {
             login: $('#login').val(),
             email: $('#email').val(),
             role: $('#role').val(),
+            telephone: $('#telephone').val(),
             mot_de_passe: $('#mot_de_passe').val(),
             created_by_login: localStorage.getItem('user_login') || '',
             updated_by_login: localStorage.getItem('user_login') || '',

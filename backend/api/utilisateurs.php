@@ -13,6 +13,40 @@ function role_existe(PDO $pdo, string $role): bool
     return (bool) $st->fetchColumn();
 }
 
+/**
+ * Lit un service_id envoyé par le client : '' / absent → null (aucun service), sinon il doit exister.
+ * Arrête la requête avec une erreur 400 si le service est inconnu.
+ */
+function service_id_valide(PDO $pdo, $valeur): ?int
+{
+    if ($valeur === null || $valeur === '' || $valeur === '0') {
+        return null;
+    }
+    $st = $pdo->prepare("SELECT id FROM t_services WHERE id = ?");
+    $st->execute([(int) $valeur]);
+    if (!ctype_digit((string) $valeur) || !$st->fetchColumn()) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Service inconnu.']);
+        exit();
+    }
+    return (int) $valeur;
+}
+
+/** Téléphone facultatif : vide → null ; sinon format simple (chiffres, espaces, +, tirets, parenthèses). */
+function telephone_valide($valeur): ?string
+{
+    $valeur = trim((string) $valeur);
+    if ($valeur === '') {
+        return null;
+    }
+    if (!preg_match('/^\+?[0-9 ().\-]{6,30}$/', $valeur)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Numéro de téléphone invalide.']);
+        exit();
+    }
+    return $valeur;
+}
+
 /** Le compte technique « Service IT » (file commune) n'est ni modifiable ni supprimable ici. */
 function est_file_commune_id(PDO $pdo, int $id): bool
 {
@@ -55,7 +89,7 @@ switch ($action) {
         try {
             // Le mot de passe (haché) n'est jamais renvoyé au client, même en interne :
             // on sélectionne explicitement les colonnes plutôt que SELECT *.
-            $userColumns = "u.id, u.nom, u.login, u.email, u.role, u.date_creation, u.updated_by_login, u.created_by_login, u.date_modification, u.telephone, u.service_id, u.actif, u.connexion_autorisee, u.est_file_commune";
+            $userColumns = "u.id, u.nom, u.login, u.email, u.role, u.date_creation, u.updated_by_login, u.created_by_login, u.date_modification, u.telephone, u.service_id, (SELECT sv.nom FROM t_services sv WHERE sv.id = u.service_id) AS service, u.actif, u.connexion_autorisee, u.est_file_commune";
 
             // Jauge d'efficacité (Terminées / (Terminées + En retard) sur la fenêtre
             // configurée) : calculée uniquement pour les administrateurs (voir
@@ -140,6 +174,8 @@ switch ($action) {
         $role = isset($_POST['role']) ? $_POST['role'] : '';
         $mot_de_passe = isset($_POST['mot_de_passe']) ? $_POST['mot_de_passe'] : '';
         $created_by_login = $currentUser['login']; // login de l'utilisateur courant
+        $service_id = service_id_valide($pdo, $_POST['service_id'] ?? null);
+        $telephone = telephone_valide($_POST['telephone'] ?? '');
 
         // Store all fields and their values for validation error messages
         $fields = [
@@ -192,11 +228,11 @@ switch ($action) {
             $hashed_password = password_hash($mot_de_passe, PASSWORD_DEFAULT);
 
             // Requête d'insertion préparée
-            $sql = "INSERT INTO t_utilisateurs (nom, login, email, role, mot_de_passe, created_by_login) VALUES (?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO t_utilisateurs (nom, login, email, role, mot_de_passe, created_by_login, service_id, telephone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
 
             // Exécution de la requête avec les valeurs
-            $result = $stmt->execute([$nom, $login, $email, $role, $hashed_password, $created_by_login]);
+            $result = $stmt->execute([$nom, $login, $email, $role, $hashed_password, $created_by_login, $service_id, $telephone]);
 
             if ($result) {
                 // On récupère l'ID de l'utilisateur créé
@@ -256,6 +292,12 @@ switch ($action) {
             // rôle via ce formulaire (empêche une élévation de privilèges).
             $role = $currentUser['role'];
         }
+        // Champs facultatifs : absents de la requête = inchangés. Le service (qui détermine les droits
+        // de visibilité de l'agent et le service par défaut de ses déclarations) est réservé aux administrateurs.
+        $majService = !$isSelfEdit && array_key_exists('service_id', $_POST);
+        $service_id = $majService ? service_id_valide($pdo, $_POST['service_id']) : null;
+        $majTelephone = array_key_exists('telephone', $_POST);
+        $telephone = $majTelephone ? telephone_valide($_POST['telephone']) : null;
 
         // Store all fields and their values for validation error messages
         $fields = [
@@ -320,18 +362,23 @@ switch ($action) {
                 exit();
             }
 
+            $sets = ['nom = ?', 'login = ?', 'email = ?', 'role = ?', 'updated_by_login = ?'];
+            $args = [$nom, $login, $email, $role, $updated_by_login];
             if (!empty($mot_de_passe)) {
-                // Hachage du nouveau mot de passe
-                $hashed_password = password_hash($mot_de_passe, PASSWORD_DEFAULT);
-                $sql = "UPDATE t_utilisateurs SET nom = ?, login = ?, email = ?, role = ?, mot_de_passe = ?, updated_by_login = ? WHERE id = ?";
-                $stmt = $pdo->prepare($sql);
-                $result = $stmt->execute([$nom, $login, $email, $role, $hashed_password, $updated_by_login, $id]);
-            } else {
-                // Mise à jour sans changer le mot de passe
-                $sql = "UPDATE t_utilisateurs SET nom = ?, login = ?, email = ?, role = ?, updated_by_login = ? WHERE id = ?";
-                $stmt = $pdo->prepare($sql);
-                $result = $stmt->execute([$nom, $login, $email, $role, $updated_by_login, $id]);
+                $sets[] = 'mot_de_passe = ?';
+                $args[] = password_hash($mot_de_passe, PASSWORD_DEFAULT);
             }
+            if ($majService) {
+                $sets[] = 'service_id = ?';
+                $args[] = $service_id;
+            }
+            if ($majTelephone) {
+                $sets[] = 'telephone = ?';
+                $args[] = $telephone;
+            }
+            $args[] = $id;
+            $stmt = $pdo->prepare('UPDATE t_utilisateurs SET ' . implode(', ', $sets) . ' WHERE id = ?');
+            $result = $stmt->execute($args);
 
             if ($result) {
                 // On renvoie une réponse de succès

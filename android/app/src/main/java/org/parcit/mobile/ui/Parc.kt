@@ -164,7 +164,11 @@ fun EcranFormMateriel(vm: AppViewModel, id: Int?) {
             Choix("Statut *", vm.referentiels.statutsMateriel, statut, { it }) { statut = it ?: statut }
             Choix("Service", vm.referentiels.services, service, { it.nom }, optionnel = true) { service = it; serviceTouche = true }
             if (vm.utilisateursRef.isNotEmpty())
-                Choix("Utilisateur", vm.utilisateursRef, agent, { it.nom }, optionnel = true) { agent = it; agentTouche = true }
+                Choix("Utilisateur", vm.utilisateursRef, agent, { it.nom }, optionnel = true) { choisi ->
+                    agent = choisi; agentTouche = true
+                    // Le matériel suit le service de son utilisateur, sauf si un service a déjà été choisi à la main.
+                    if (choisi?.service != null && !serviceTouche && service == null) { service = choisi.service; serviceTouche = true }
+                }
         }
         if (scan) DialogueScan("Scanner le numéro de série", onCode = { serie = numeroDeSerie(it); scan = false }, onFermer = { scan = false })
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {

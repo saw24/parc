@@ -67,7 +67,7 @@ switch ($action) {
             }
 
             // Vérifier les identifiants
-            $sql = "SELECT id, nom, login, role, mot_de_passe FROM t_utilisateurs WHERE login = ? AND actif AND connexion_autorisee";
+            $sql = "SELECT u.id, u.nom, u.login, u.role, u.mot_de_passe, u.service_id, (SELECT sv.nom FROM t_services sv WHERE sv.id = u.service_id) AS service FROM t_utilisateurs u WHERE u.login = ? AND u.actif AND u.connexion_autorisee";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([$login]);
             $user = $stmt->fetch();

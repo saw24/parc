@@ -154,7 +154,7 @@ fun EcranListe(vm: AppViewModel) {
                     IconButton({ menu = true }) { Avatar(vm.utilisateur?.nom, 36) }
                     DropdownMenu(menu, { menu = false }) {
                         Text(vm.utilisateur?.nom ?: "", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.titleSmall)
-                        Text(vm.utilisateur?.role ?: "", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(listOfNotNull(vm.utilisateur?.role, vm.utilisateur?.service?.nom).joinToString(" · "), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         DropdownMenuItem(text = { Text(if (vm.sombre) "Thème clair" else "Thème sombre") },
                             leadingIcon = { Icon(if (vm.sombre) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, null) },
@@ -288,14 +288,17 @@ fun EcranDeclarer(vm: AppViewModel) {
                     SegmentedButton(prio == p, { prio = p }, SegmentedButtonDefaults.itemShape(i, niveaux.size), label = { Text(p) })
                 }
             }
-            Choix("Service concerné", vm.referentiels.services, service, { it.nom }, optionnel = true) { service = it }
+            Choix("Service concerné *", vm.referentiels.services, service, { it.nom }) { service = it }
+            if (vm.utilisateur?.service == null)
+                Text("Votre compte n'est lié à aucun service : choisissez-le ici. Demandez à un administrateur de renseigner votre service pour qu'il soit proposé automatiquement.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (vm.materiels.isNotEmpty() || vm.materielPrefill != null)
                 Choix("Matériel concerné", (vm.materiels + listOfNotNull(vm.materielPrefill)).distinctBy { it.id }, materiel, { it.libelle }, optionnel = true) { materiel = it }
         }
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
             Box(Modifier.padding(16.dp)) {
                 BoutonPrincipal("Envoyer la déclaration", { vm.declarer(titre.trim(), desc.trim(), prio, service?.id, materiel?.id) },
-                    enabled = titre.isNotBlank() && !vm.chargement, icone = Icons.AutoMirrored.Rounded.Send)
+                    enabled = titre.isNotBlank() && service != null && !vm.chargement, icone = Icons.AutoMirrored.Rounded.Send)
             }
         }
     }

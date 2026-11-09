@@ -38,3 +38,11 @@ Selon `actions` renvoyées par le serveur : **Je prends**, **Affecter** (liste d
 - **Écrans** : connexion épurée (serveur replié), accueil « Bonjour … » avec compteurs et filtres, liseré de priorité sur les cartes, tirer pour actualiser, barre du bas avec icônes et pastille d'alertes, déclaration avec choix d'urgence en boutons segmentés et bouton d'envoi fixe, détail en cartes (état, informations, historique), alertes avec icônes par type, parc avec icône par type d'équipement, scanner avec cadre de visée.
 - **Icône** de l'application redessinée (écran avec coche).
 - Aucun changement de comportement ni d'API. Rendu **non vérifié visuellement** par moi (pas d'appareil) : à valider sur le téléphone, les retouches (espacements, couleurs) sont rapides.
+
+## Lien utilisateur → service
+La colonne `t_utilisateurs.service_id` existait déjà (migration 003) mais rien ne permettait de la renseigner depuis le site. Désormais :
+- **Site web** : le formulaire utilisateur a les champs **Service** et **Téléphone** (le service est réservé aux administrateurs ; l'agent peut changer son téléphone depuis « Mon profil »). La liste des utilisateurs affiche une colonne Service. `api/utilisateurs.php` valide le service (400 si inconnu), conserve la valeur quand le champ n'est pas envoyé et renvoie `service` (nom). La connexion renvoie `service`/`service_id`.
+- **Déclaration d'une panne** : le service de l'utilisateur est proposé par défaut sur le site (fiche tâche) et sur mobile (le serveur l'utilise aussi si l'application n'en envoie pas). Sur mobile, le service est désormais **obligatoire** ; un compte sans service est invité à le choisir et à demander à un administrateur de le renseigner.
+- **Matériel (mobile)** : choisir l'utilisateur d'un équipement propose son service.
+- **À faire une fois en production** : les comptes existants n'ont pas de service. Un administrateur doit le renseigner (Utilisateurs → Modifier). Les sessions web ouvertes avant la mise à jour récupèrent leur service automatiquement à la première création de tâche.
+- Tests : 10 contrôles ajoutés dans `authz_test.php`.

@@ -39,6 +39,7 @@ $(document).ready(function() {
                     localStorage.setItem('user_name', response.user.nom);
                     localStorage.setItem('user_role', response.user.role);
                     localStorage.setItem('user_login', response.user.login);
+                    localStorage.setItem('user_service', response.user.service || '');
                     localStorage.setItem('session_token', response.session_token);
                     
                     // Rediriger vers l'application principale

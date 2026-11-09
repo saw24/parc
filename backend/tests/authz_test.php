@@ -56,7 +56,7 @@ function nettoyer(PDO $pdo, array $comptes): void {
     $pdo->prepare("DELETE FROM t_services WHERE nom LIKE 'ZZ_TEST_%'")->execute();
     $pdo->prepare("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_TEST_%'")->execute();
     $pdo->prepare("DELETE FROM t_login_attempts WHERE login LIKE 'zz_test_%'")->execute();
-    $pdo->prepare("DELETE FROM t_utilisateurs WHERE login IN ($in)")->execute($logins);
+    $pdo->prepare("DELETE FROM t_utilisateurs WHERE login IN ($in) OR login LIKE 'zz_test_svc%'")->execute($logins);
     $rin = implode(',', array_fill(0, count($rolesTest), '?'));
     $pdo->prepare("DELETE FROM t_roles WHERE nom IN ($rin)")->execute(array_keys($rolesTest));
 }
@@ -198,6 +198,38 @@ try {
     check('agent : liste complète du matériel → 403', $c === 403, "(reçu $c)");
     [$c, $j] = call('POST', "$base/auth.php?action=login", ['login' => 'zz_test_agent', 'password' => $pwd]);
     check('login renvoie les permissions', in_array('tache.declarer', $j['user']['permissions'] ?? [], true));
+
+    echo "Lien utilisateur → service\n";
+    $pdo->exec("INSERT INTO t_services (nom) VALUES ('ZZ_TEST_SVC_A'), ('ZZ_TEST_SVC_B')");
+    $svcA = (int) $pdo->query("SELECT id FROM t_services WHERE nom = 'ZZ_TEST_SVC_A'")->fetchColumn();
+    $svcB = (int) $pdo->query("SELECT id FROM t_services WHERE nom = 'ZZ_TEST_SVC_B'")->fetchColumn();
+    $nouveau = ['nom' => 'ZZ svc', 'login' => 'zz_test_svc1', 'role' => 'zz_role_agent', 'mot_de_passe' => $pwd, 'email' => 'svc@example.org'];
+    [$c, $j] = call('POST', "$base/utilisateurs.php?action=create", $nouveau + ['service_id' => 999999], $auth['admin']);
+    check('création avec un service inconnu → 400', $c === 400, "(reçu $c)");
+    [$c, $j] = call('POST', "$base/utilisateurs.php?action=create", $nouveau + ['service_id' => (string) $svcA, 'telephone' => '+227 90 11 22 33'], $auth['admin']);
+    $uid = (int) ($j['id'] ?? 0);
+    check('création avec service et téléphone', $c === 200 && $uid > 0, "(reçu $c)");
+    [$c, $j] = call('GET', "$base/utilisateurs.php?action=read&id=$uid", [], $auth['admin']);
+    check('lecture : service_id, nom du service et téléphone', ($j[0]['service_id'] ?? null) == $svcA && ($j[0]['service'] ?? '') === 'ZZ_TEST_SVC_A' && ($j[0]['telephone'] ?? '') === '+227 90 11 22 33');
+    [$c] = call('POST', "$base/utilisateurs.php?action=create", ['login' => 'zz_test_svc2', 'nom' => 'ZZ svc2', 'role' => 'zz_role_agent', 'mot_de_passe' => $pwd, 'telephone' => 'abc'], $auth['admin']);
+    check('téléphone invalide → 400', $c === 400, "(reçu $c)");
+    $maj = ['id' => $uid, 'nom' => 'ZZ svc', 'login' => 'zz_test_svc1', 'role' => 'zz_role_agent', 'email' => 'svc@example.org'];
+    call('POST', "$base/utilisateurs.php?action=update", $maj, $auth['admin']);
+    $lire = fn() => call('GET', "$base/utilisateurs.php?action=read&id=$uid", [], $auth['admin'])[1][0];
+    check('mise à jour sans service_id : service conservé', $lire()['service_id'] == $svcA && $lire()['telephone'] === '+227 90 11 22 33');
+    call('POST', "$base/utilisateurs.php?action=update", $maj + ['service_id' => (string) $svcB], $auth['admin']);
+    check('changement de service par un administrateur', $lire()['service_id'] == $svcB);
+    call('POST', "$base/utilisateurs.php?action=update", $maj + ['service_id' => ''], $auth['admin']);
+    check('service vidé', $lire()['service_id'] === null);
+    $pdo->prepare("UPDATE t_utilisateurs SET service_id = ? WHERE id = ?")->execute([$svcA, $ids['agent']]);
+    $moi = ['id' => $ids['agent'], 'nom' => 'ZZ zz_test_agent', 'login' => 'zz_test_agent', 'role' => 'zz_role_agent', 'email' => ''];
+    call('POST', "$base/utilisateurs.php?action=update", $moi + ['service_id' => (string) $svcB, 'telephone' => '+227 91 00 00 00'], $auth['agent']);
+    $st = $pdo->prepare("SELECT service_id, telephone FROM t_utilisateurs WHERE id = ?"); $st->execute([$ids['agent']]); $r = $st->fetch();
+    check('un agent ne peut pas changer son propre service', (int) $r['service_id'] === $svcA);
+    check('…mais peut changer son téléphone', $r['telephone'] === '+227 91 00 00 00');
+    [$c, $j] = call('POST', "$base/auth.php?action=login", ['login' => 'zz_test_agent', 'password' => $pwd]);
+    check('login renvoie le service de l\'utilisateur', ($j['user']['service'] ?? '') === 'ZZ_TEST_SVC_A' && ($j['user']['service_id'] ?? null) == $svcA);
+    $pdo->exec("UPDATE t_utilisateurs SET service_id = NULL WHERE login = 'zz_test_agent'");
 
     echo "Transitions (tache_transition)\n";
     $usr = function (string $cle) use ($pdo, $ids) {
