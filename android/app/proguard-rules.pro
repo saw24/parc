@@ -1,0 +1,5 @@
+-keepattributes *Annotation*, InnerClasses
+-dontwarn org.slf4j.**
+-keep,includedescriptorclasses class org.parcit.mobile.**$$serializer { *; }
+-keepclassmembers class org.parcit.mobile.** { *** Companion; }
+-keepclasseswithmembers class org.parcit.mobile.** { kotlinx.serialization.KSerializer serializer(...); }
