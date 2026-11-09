@@ -562,7 +562,7 @@ $(document).ready(function () {
                 $('#login').val(utilisateur.login);
                 $('#email').val(utilisateur.email);
                 $('#telephone').val(utilisateur.telephone || '');
-                $('#role').val(utilisateur.role);
+                $('#role').html(`<option value="${esc(utilisateur.role)}">${esc(utilisateur.role)}</option>`).val(utilisateur.role);
                 $('#mot_de_passe').val('');
 
                 if (userRole !== 'Administrateur') {
@@ -2279,6 +2279,26 @@ $(document).ready(function () {
             </div>
         </form>`;
 
+    /** Remplit la liste des rôles du formulaire utilisateur depuis l'API (rôles créés dans l'écran « Rôles »). */
+    function chargerRolesUtilisateur(role) {
+        $.ajax({
+            url: '../backend/api/v1/index.php/roles',
+            type: 'GET',
+            dataType: 'json',
+            success: function (r) {
+                const $sel = $('#role');
+                $sel.empty();
+                r.data.filter(x => x.nom !== 'Service IT').forEach(function (x) {
+                    $sel.append(`<option value="${esc(x.nom)}">${esc(x.nom)}</option>`);
+                });
+                if (role && !$sel.find('option').filter((_, o) => o.value === role).length) {
+                    $sel.append(`<option value="${esc(role)}">${esc(role)}</option>`);
+                }
+                $sel.val(role || $sel.find('option:first').val());
+            }
+        });
+    }
+
     /** Remplit la liste des services du formulaire utilisateur et sélectionne celui de l'utilisateur. */
     function chargerServicesUtilisateur(serviceId) {
         $.ajax({
@@ -2331,6 +2351,7 @@ $(document).ready(function () {
             // Date limite par défaut = date du jour lors de la création d'une tâche.
             if (context === 'utilisateurs' && mode === 'add') {
                 chargerServicesUtilisateur(null);
+                chargerRolesUtilisateur(null);
             }
             // Le service de l'utilisateur connecté est proposé par défaut (modifiable) à la création d'une tâche.
             $('#tache-service').data('defaut', (context === 'taches' && mode === 'add') ? (localStorage.getItem('user_service') || '') : '');
@@ -3134,7 +3155,7 @@ $(document).ready(function () {
                     $('#login').val(utilisateur.login);
                     $('#email').val(utilisateur.email);
                     $('#telephone').val(utilisateur.telephone || '');
-                    $('#role').val(utilisateur.role);
+                    chargerRolesUtilisateur(utilisateur.role);
                     chargerServicesUtilisateur(utilisateur.service_id);
                     $('#mot_de_passe').val(''); // Ne pas afficher le mot de passe
 
