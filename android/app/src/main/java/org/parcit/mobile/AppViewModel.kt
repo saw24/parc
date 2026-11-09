@@ -138,6 +138,9 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
             val t = repo.prendre(id)
             message = "Vous avez pris en charge ${t.reference ?: "la panne"}."
             if (detail?.id == id) detail = t
+            // Elle apparaît tout de suite dans « mes pannes assignées » (et quitte la file à prendre).
+            filtre = "moi"
+            runCatching { interventions = repo.interventions("moi", recherche) }
         } finally {
             alerte = null
             runCatching { rafraichirNotifications() }

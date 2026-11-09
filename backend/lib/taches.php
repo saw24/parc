@@ -313,6 +313,11 @@ function tache_transition(PDO $pdo, int $id, array $user, string $action, array 
         $st = $pdo->prepare("SELECT * FROM t_taches WHERE id = ?");
         $st->execute([$id]);
         $maj = $st->fetch();
+        // Plus à prendre : on retire des boîtes de réception l'appel « nouvelle panne à prendre » et ses envois pas encore partis.
+        $sorti = $maj['assigne_id'] !== null && !($file && (int) $maj['assigne_id'] === $file['id']);
+        if ($sorti || in_array($maj['statut'], TACHE_STATUTS_FINAUX, true)) {
+            tache_solder_notifications($pdo, $id, $action === 'prendre' ? (int) $user['id'] : null);
+        }
         $pdo->commit();
         return ['ok' => true, 'tache' => $maj, 'evenement' => $evt];
     } catch (Throwable $e) {
@@ -445,5 +450,22 @@ function tache_modifier(PDO $pdo, int $id, array $user, array $champs, ?int $ver
             $pdo->rollBack();
         }
         throw $e;
+    }
+}
+
+
+/**
+ * Une panne vient d'être prise (ou clôturée) : ses notifications « à prendre » ne sont plus valables pour personne.
+ * Elles sont marquées lues, perdent leur bouton « Je prends » et leurs envois e-mail/SMS/push encore en attente sont retirés.
+ * Si $preneur est fourni, ses propres notifications non lues sur cette panne sont aussi soldées (il la connaît déjà).
+ */
+function tache_solder_notifications(PDO $pdo, int $tacheId, ?int $preneur = null): void
+{
+    $st = $pdo->prepare("UPDATE t_notifications SET lu_at = NOW(), prenable = FALSE
+        WHERE tache_id = ? AND lu_at IS NULL AND (prenable OR user_id = ?) RETURNING id");
+    $st->execute([$tacheId, $preneur ?? 0]);
+    $ids = $st->fetchAll(PDO::FETCH_COLUMN);
+    if ($ids) {
+        $pdo->exec("DELETE FROM t_notifications_envois WHERE statut = 'en_attente' AND notification_id IN (" . implode(',', array_map('intval', $ids)) . ")");
     }
 }

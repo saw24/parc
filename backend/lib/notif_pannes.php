@@ -117,13 +117,17 @@ function notif_destinataires(PDO $pdo, array $ev, array $t): array
             if ($declarant) {
                 $out[] = [$declarant, 'declarant'];
             }
-            if ($assigne !== null && (int) $assigne === (int) $t['file_id']) {
-                // Panne en file : toute l'équipe IT est prévenue, pour qu'un agent la prenne.
-                foreach (notif_agents_it($pdo) as $uid) {
-                    $out[] = [$uid, 'equipe'];
+            $file = (int) $t['file_id'];
+            $initial = $ev['nouveau_assigne_id'] !== null ? (int) $ev['nouveau_assigne_id'] : $assigne;
+            if ($initial === $file) {
+                // Panne en file : toute l'équipe IT est prévenue pour qu'un agent la prenne — sauf si quelqu'un l'a déjà prise.
+                if ($assigne === $file) {
+                    foreach (notif_agents_it($pdo) as $uid) {
+                        $out[] = [$uid, 'equipe'];
+                    }
                 }
-            } elseif ($assigne) {
-                $out[] = [$assigne, 'assigne'];
+            } elseif ($initial) {
+                $out[] = [$initial, 'assigne'];
             }
             break;
         case 'affectation':
@@ -132,8 +136,8 @@ function notif_destinataires(PDO $pdo, array $ev, array $t): array
             }
             if ($ev['nouveau_assigne_id'] && (int) $ev['nouveau_assigne_id'] !== (int) $t['file_id']) {
                 $out[] = [(int) $ev['nouveau_assigne_id'], 'assigne'];
-            } elseif ($ev['nouveau_assigne_id']) {
-                foreach (notif_agents_it($pdo) as $uid) {   // remise en file
+            } elseif ($ev['nouveau_assigne_id'] && $assigne === (int) $t['file_id']) {
+                foreach (notif_agents_it($pdo) as $uid) {   // remise en file (seulement si elle y est encore)
                     $out[] = [$uid, 'equipe'];
                 }
             }

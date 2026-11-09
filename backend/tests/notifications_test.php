@@ -107,6 +107,11 @@ try {
     check('déclarant prévenu avec le nom de l\'agent', ($n = $notifs('agent')[1]['data'][0] ?? null) && $n['type'] === 'prise_en_charge' && str_contains($n['message'], 'ZZ zz_nt_tech'));
     check('tech (auteur) pas notifié de sa propre action', $types($notifs('tech')) === ['nouvelle']);
     check('« Je prends » disparaît pour tech2 (déjà prise)', $notifs('tech2')[1]['data'][0]['peut_prendre'] === false);
+    check('« nouvelle » soldée pour tech2 (marquée lue)', ($notifs('tech2')[1]['meta']['non_lues'] ?? -1) === 0 && $notifs('tech2')[1]['data'][0]['lue'] === true);
+    check('… et pour le preneur lui-même', ($notifs('tech')[1]['meta']['non_lues'] ?? -1) === 0);
+    $reste = (int) $pdo->query("SELECT COUNT(*) FROM t_notifications_envois e JOIN t_notifications n ON n.id = e.notification_id
+        WHERE n.tache_id = $tid AND n.type = 'nouvelle' AND e.statut = 'en_attente'")->fetchColumn();
+    check('envois e-mail/SMS/push encore en attente retirés', $reste === 0, "(reste $reste)");
 
     echo "Statut et commentaires\n";
     api('POST', "taches/$tid/statut", ['statut' => 'En attente', 'motif_attente' => 'Pièce commandée', 'date_relance' => date('Y-m-d', strtotime('+3 days'))], $tok['tech']);
