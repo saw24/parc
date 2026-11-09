@@ -12,6 +12,16 @@
 // rattaché à l'utilisateur indiqué.
 
 /**
+ * Les jetons de session ne sont jamais stockés en clair : t_sessions.session_token contient
+ * le SHA-256 du jeton remis au client. Une fuite de la base ne permet donc pas de rejouer
+ * les sessions en cours. (Le jeton aléatoire de 256 bits rend inutile un sel ou un hachage lent.)
+ */
+function hash_session_token(string $token): string
+{
+    return hash('sha256', $token);
+}
+
+/**
  * Exige une session valide. Arrête l'exécution avec une réponse JSON 401
  * si le token est absent, invalide ou expiré. Retourne les infos de
  * l'utilisateur authentifié en cas de succès.
@@ -34,9 +44,10 @@ function require_auth(PDO $pdo): array
         $sql = "SELECT u.id, u.nom, u.login, u.role
                 FROM t_sessions s
                 JOIN t_utilisateurs u ON s.user_id = u.id
-                WHERE s.session_token = ? AND s.user_id = ? AND s.expiry_time > NOW()";
+                WHERE s.session_token = ? AND s.user_id = ? AND s.expiry_time > NOW()
+                  AND u.actif AND u.connexion_autorisee";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$sessionToken, $userId]);
+        $stmt->execute([hash_session_token($sessionToken), $userId]);
         $user = $stmt->fetch();
     } catch (PDOException $e) {
         error_log('Auth middleware DB error: ' . $e->getMessage());
@@ -51,7 +62,62 @@ function require_auth(PDO $pdo): array
         exit();
     }
 
+    $user['permissions'] = charger_permissions($pdo, $user['role']);
     return $user;
+}
+
+/**
+ * Codes de permission d'un rôle. Un rôle système (Administrateur) possède TOUTES les
+ * permissions, y compris celles ajoutées plus tard. Un rôle inconnu n'en a aucune.
+ * @return list<string>
+ */
+function charger_permissions(PDO $pdo, string $role): array
+{
+    $stmt = $pdo->prepare("
+        SELECT p.code
+        FROM t_roles r
+        JOIN t_permissions p ON r.systeme OR EXISTS (
+            SELECT 1 FROM t_roles_permissions rp WHERE rp.role_id = r.id AND rp.permission_code = p.code)
+        WHERE r.nom = ?
+        ORDER BY p.ordre
+    ");
+    $stmt->execute([$role]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN);
+}
+
+function has_permission(array $user, string $code): bool
+{
+    return in_array($code, $user['permissions'] ?? [], true);
+}
+
+function has_any_permission(array $user, array $codes): bool
+{
+    foreach ($codes as $c) {
+        if (has_permission($user, $c)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Arrête l'exécution avec 403 si l'utilisateur n'a pas la permission. */
+function require_permission(array $user, string $code): void
+{
+    if (!has_permission($user, $code)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Accès refusé : permission manquante (' . $code . ').']);
+        exit();
+    }
+}
+
+/** Arrête l'exécution avec 403 si l'utilisateur n'a aucune des permissions. */
+function require_any_permission(array $user, array $codes): void
+{
+    if (!has_any_permission($user, $codes)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Accès refusé : permission manquante.']);
+        exit();
+    }
 }
 
 /**

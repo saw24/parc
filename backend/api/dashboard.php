@@ -11,6 +11,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/parametres.php';
 require_once __DIR__ . '/../middleware/auth.php';
 $currentUser = require_auth($pdo);
+require_permission($currentUser, 'dashboard.voir');
 
 // On détermine si la requête est de type GET ou POST
 $method = $_SERVER['REQUEST_METHOD'];

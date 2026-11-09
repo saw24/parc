@@ -1,4 +1,9 @@
 <?php
+// Script d'administration : exécutable en ligne de commande uniquement, jamais via HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Script réservé à la ligne de commande.');
+}
 // Script de test pour vérifier le chargement des données dans les selects
 
 echo "<h1>Test du Chargement des Données pour les Selects</h1>";

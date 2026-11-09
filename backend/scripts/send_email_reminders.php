@@ -1,4 +1,9 @@
 <?php
+// Script d'administration : exécutable en ligne de commande uniquement, jamais via HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Script réservé à la ligne de commande.');
+}
 // Script de rappels par email (résumé quotidien + escalade), à exécuter périodiquement
 // via une tâche planifiée (cron) — ce projet n'a pas de worker en tâche de fond, donc
 // rien n'envoie ces emails tant que ce script n'est pas planifié.

@@ -19,6 +19,7 @@ switch ($action) {
     // READ: Liste des types de matériel
     // ===============================================
     case 'read':
+        require_permission($currentUser, 'referentiel.voir');
         try {
             $sql = "SELECT * FROM t_type_materiel ORDER BY type ASC";
             $stmt = $pdo->prepare($sql);
@@ -36,6 +37,7 @@ switch ($action) {
     // CREATE: Créer un type de matériel
     // ===============================================
     case 'create':
+        require_permission($currentUser, 'referentiel.gerer');
         if ($method !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'La méthode POST est requise.']);
@@ -82,6 +84,7 @@ switch ($action) {
     // UPDATE: Mettre à jour un type de matériel
     // ===============================================
     case 'update':
+        require_permission($currentUser, 'referentiel.gerer');
         if ($method !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'La méthode POST est requise.']);
@@ -134,6 +137,7 @@ switch ($action) {
     // DELETE: Supprimer un type de matériel
     // ===============================================
     case 'delete':
+        require_permission($currentUser, 'referentiel.supprimer');
         if ($method !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'La méthode POST est requise.']);

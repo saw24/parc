@@ -1,0 +1,4 @@
+# Défense en profondeur (Apache) : ces scripts d'administration ne doivent jamais être servis.
+# Ils refusent déjà toute exécution hors ligne de commande ; sous nginx, ajouter un
+# `location /backend/scripts/ { deny all; }` équivalent.
+Require all denied

@@ -19,6 +19,7 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 switch ($action) {
     case 'read':
+        require_permission($currentUser, 'materiel.voir_tous');
         // Ce bloc reste identique
         try {
             $stmt = $pdo->query("SELECT * FROM t_materiel ORDER BY id DESC");
@@ -35,6 +36,7 @@ switch ($action) {
     // HISTORIQUE D'AFFECTATION D'UN MATÉRIEL
     // ===============================================
     case 'historique_affectations':
+        require_permission($currentUser, 'materiel.voir_tous');
         $materielId = isset($_GET['id']) ? intval($_GET['id']) : 0;
         if ($materielId <= 0) {
             http_response_code(400);
@@ -62,6 +64,7 @@ switch ($action) {
     // NOUVEAU BLOC POUR LA CRÉATION
     // ===============================================
     case 'create':
+        require_permission($currentUser, 'materiel.creer');
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
             http_response_code(405); // Method Not Allowed
@@ -82,8 +85,8 @@ switch ($action) {
         $service_affecte = isset($_POST['service']) ? $_POST['service'] : '';
         $utilisateur_assigne = isset($_POST['utilisateur']) ? $_POST['utilisateur'] : '';
         $date_derniere_affect = isset($_POST['date_derniere_affect']) && !empty($_POST['date_derniere_affect']) ? $_POST['date_derniere_affect'] : null;
-        $created_by_login = isset($_POST['created_by_login']) ? $_POST['created_by_login'] : '';
-        $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : null; // login de l'utilisateur courant
+        $created_by_login = $currentUser['login'];
+        $updated_by_login = $currentUser['login']; // login de l'utilisateur courant
 
         // Log the extracted values
         error_log("Extracted values: type=$type, marque=$marque, modele=$modele, num_serie=$num_serie, date_achat=$date_achat, statut=$statut, service_affecte=$service_affecte, utilisateur_assigne=$utilisateur_assigne, created_by_login=$created_by_login, updated_by_login=$updated_by_login");
@@ -155,6 +158,7 @@ switch ($action) {
     // BLOC POUR LA MISE À JOUR
     // ===============================================
     case 'update':
+        require_permission($currentUser, 'materiel.modifier');
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
             http_response_code(405); // Method Not Allowed
@@ -184,7 +188,7 @@ switch ($action) {
         $service_affecte = isset($_POST['service']) ? $_POST['service'] : '';
         $utilisateur_assigne = isset($_POST['utilisateur']) ? $_POST['utilisateur'] : '';
         $date_derniere_affect = isset($_POST['date_derniere_affect']) && !empty($_POST['date_derniere_affect']) ? $_POST['date_derniere_affect'] : null;
-        $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : null; // login de l'utilisateur courant
+        $updated_by_login = $currentUser['login']; // login de l'utilisateur courant
 
 
         // Log the extracted values
@@ -277,6 +281,7 @@ switch ($action) {
     // BLOC POUR LA SUPPRESSION
     // ===============================================
     case 'delete':
+        require_permission($currentUser, 'materiel.supprimer');
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
             http_response_code(405); // Method Not Allowed

@@ -8,6 +8,12 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0); // ne jamais afficher les erreurs PHP au client (fuite d'infos internes)
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../middleware/auth.php';
+
+// Anti force brute : au-delà de ce nombre d'échecs récents, le login (ou l'IP) est bloqué.
+const LOGIN_MAX_ECHECS = 5;
+const LOGIN_MAX_ECHECS_IP = 30;
+const LOGIN_FENETRE_MINUTES = 15;
 
 // Démarrer la session PHP
 session_start();
@@ -37,14 +43,38 @@ switch ($action) {
         }
 
         try {
+            $ip = substr($_SERVER['REMOTE_ADDR'] ?? '', 0, 45);
+
+            // Purge des tentatives anciennes puis comptage des échecs récents (par login ET par IP).
+            $pdo->exec("DELETE FROM t_login_attempts WHERE created_at < NOW() - INTERVAL '1 day'");
+            // Seuil par login (strict) et par IP (large : plusieurs agents peuvent partager
+            // la même adresse publique derrière un NAT).
+            $echecs = $pdo->prepare("
+                SELECT
+                    COUNT(*) FILTER (WHERE login = ?) AS par_login,
+                    COUNT(*) FILTER (WHERE ip <> '' AND ip = ?) AS par_ip
+                FROM t_login_attempts
+                WHERE succes = FALSE
+                  AND created_at > NOW() - (? || ' minutes')::interval
+            ");
+            $echecs->execute([$login, $ip, LOGIN_FENETRE_MINUTES]);
+            $compte = $echecs->fetch();
+            if ((int) $compte['par_login'] >= LOGIN_MAX_ECHECS || (int) $compte['par_ip'] >= LOGIN_MAX_ECHECS_IP) {
+                http_response_code(429);
+                header('Retry-After: ' . (LOGIN_FENETRE_MINUTES * 60));
+                echo json_encode(['error' => 'Trop de tentatives échouées. Réessayez dans ' . LOGIN_FENETRE_MINUTES . ' minutes.']);
+                exit();
+            }
+
             // Vérifier les identifiants
-            $sql = "SELECT id, nom, login, role, mot_de_passe FROM t_utilisateurs WHERE login = ?";
+            $sql = "SELECT id, nom, login, role, mot_de_passe FROM t_utilisateurs WHERE login = ? AND actif AND connexion_autorisee";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([$login]);
             $user = $stmt->fetch();
 
             if ($user && password_verify($password, $user['mot_de_passe'])) {
-                // Connexion réussie
+                // Connexion réussie : on efface les échecs précédents de ce login.
+                $pdo->prepare("DELETE FROM t_login_attempts WHERE login = ? AND succes = FALSE")->execute([$login]);
                 
                 // Générer un token de session unique
                 $sessionToken = bin2hex(random_bytes(32));
@@ -53,7 +83,7 @@ switch ($action) {
                 // Stocker la session en base de données
                 $sessionSql = "INSERT INTO t_sessions (user_id, session_token, expiry_time, created_at) VALUES (?, ?, ?, NOW())";
                 $sessionStmt = $pdo->prepare($sessionSql);
-                $sessionStmt->execute([$user['id'], $sessionToken, $expiryTime]);
+                $sessionStmt->execute([$user['id'], hash_session_token($sessionToken), $expiryTime]);
                 
                 // Nettoyer les sessions expirées
                 $cleanupSql = "DELETE FROM t_sessions WHERE expiry_time < NOW()";
@@ -61,6 +91,7 @@ switch ($action) {
                 
                 // Retourner les informations de l'utilisateur (sans le mot de passe)
                 unset($user['mot_de_passe']);
+                $user['permissions'] = charger_permissions($pdo, $user['role']);
                 
                 echo json_encode([
                     'success' => true,
@@ -69,7 +100,9 @@ switch ($action) {
                     'session_token' => $sessionToken
                 ]);
             } else {
-                // Identifiants incorrects
+                // Identifiants incorrects : on mémorise l'échec (login tronqué pour borner la taille).
+                $pdo->prepare("INSERT INTO t_login_attempts (login, ip, succes) VALUES (?, ?, FALSE)")
+                    ->execute([substr($login, 0, 100), $ip]);
                 http_response_code(401);
                 echo json_encode(['error' => 'Identifiants incorrects.']);
             }
@@ -101,9 +134,10 @@ switch ($action) {
             $sql = "SELECT s.*, u.nom, u.login, u.role 
                     FROM t_sessions s 
                     JOIN t_utilisateurs u ON s.user_id = u.id 
-                    WHERE s.session_token = ? AND s.user_id = ? AND s.expiry_time > NOW()";
+                    WHERE s.session_token = ? AND s.user_id = ? AND s.expiry_time > NOW()
+                    AND u.actif AND u.connexion_autorisee";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$sessionToken, $userId]);
+            $stmt->execute([hash_session_token($sessionToken), $userId]);
             $session = $stmt->fetch();
 
             if ($session) {
@@ -114,7 +148,8 @@ switch ($action) {
                         'id' => $session['user_id'],
                         'nom' => $session['nom'],
                         'login' => $session['login'],
-                        'role' => $session['role']
+                        'role' => $session['role'],
+                        'permissions' => charger_permissions($pdo, $session['role'])
                     ]
                 ]);
             } else {
@@ -143,7 +178,7 @@ switch ($action) {
                 // Supprimer la session de la base de données
                 $sql = "DELETE FROM t_sessions WHERE session_token = ?";
                 $stmt = $pdo->prepare($sql);
-                $stmt->execute([$sessionToken]);
+                $stmt->execute([hash_session_token($sessionToken)]);
             } catch (PDOException $e) {
                 // Log l'erreur mais ne pas l'exposer à l'utilisateur
                 error_log('Erreur lors de la déconnexion: ' . $e->getMessage());
@@ -180,9 +215,10 @@ switch ($action) {
             $sql = "SELECT s.*, u.nom, u.login, u.role 
                     FROM t_sessions s 
                     JOIN t_utilisateurs u ON s.user_id = u.id 
-                    WHERE s.session_token = ? AND s.user_id = ? AND s.expiry_time > NOW()";
+                    WHERE s.session_token = ? AND s.user_id = ? AND s.expiry_time > NOW()
+                    AND u.actif AND u.connexion_autorisee";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$sessionToken, $userId]);
+            $stmt->execute([hash_session_token($sessionToken), $userId]);
             $session = $stmt->fetch();
 
             if ($session) {
@@ -192,7 +228,8 @@ switch ($action) {
                         'id' => $session['user_id'],
                         'nom' => $session['nom'],
                         'login' => $session['login'],
-                        'role' => $session['role']
+                        'role' => $session['role'],
+                        'permissions' => charger_permissions($pdo, $session['role'])
                     ]
                 ]);
             } else {

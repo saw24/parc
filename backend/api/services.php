@@ -20,6 +20,7 @@ switch ($action) {
     // BLOC POUR LA LECTURE
     // ===============================================
     case 'read':
+        require_permission($currentUser, 'referentiel.voir');
         try {
             // Requête pour récupérer tous les services
             $sql = "SELECT * FROM t_services ORDER BY nom ASC";
@@ -44,6 +45,7 @@ switch ($action) {
     // BLOC POUR LA CRÉATION
     // ===============================================
     case 'create':
+        require_permission($currentUser, 'referentiel.gerer');
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
             http_response_code(405); // Method Not Allowed
@@ -57,7 +59,7 @@ switch ($action) {
         // On récupère les données du formulaire
         $nom = isset($_POST['nom']) ? $_POST['nom'] : '';
         $description = isset($_POST['description']) ? $_POST['description'] : '';
-        $created_by_login = isset($_POST['created_by_login']) ? $_POST['created_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
+        $created_by_login = $currentUser['login']; // login de l'utilisateur courant
 
         // Log the extracted values
         error_log("CREATE - Extracted values: nom=$nom, description=$description, created_by_login=$created_by_login");
@@ -116,6 +118,7 @@ switch ($action) {
     // BLOC POUR LA MISE À JOUR
     // ===============================================
     case 'update':
+        require_permission($currentUser, 'referentiel.gerer');
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
             http_response_code(405); // Method Not Allowed
@@ -138,7 +141,7 @@ switch ($action) {
         // On récupère les données du formulaire
         $nom = isset($_POST['nom']) ? $_POST['nom'] : '';
         $description = isset($_POST['description']) ? $_POST['description'] : '';
-        $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : null; // login de l'utilisateur courant
+        $updated_by_login = $currentUser['login']; // login de l'utilisateur courant
 
         // Log the extracted values
         error_log("UPDATE - Extracted values: id=$id, nom=$nom, description=$description, updated_by_login=$updated_by_login");
@@ -194,6 +197,7 @@ switch ($action) {
     // BLOC POUR LA SUPPRESSION
     // ===============================================
     case 'delete':
+        require_permission($currentUser, 'referentiel.supprimer');
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
             http_response_code(405); // Method Not Allowed

@@ -1,3 +1,7 @@
+-- OBSOLÈTE depuis novembre 2026 : le schéma est désormais défini par les migrations versionnées
+-- (backend/migrations/, exécutées par backend/scripts/migrate.php). Ce fichier est conservé comme
+-- état historique (il sert de point de départ au test des migrations sur une base existante).
+
 -- Schéma PostgreSQL pour la base "taches" (PARC IT)
 -- Équivalent fonctionnel du schéma MySQL d'origine (backend/sql/parc_info.sql),
 -- adapté à PostgreSQL : SERIAL au lieu d'AUTO_INCREMENT, CHECK au lieu d'ENUM,

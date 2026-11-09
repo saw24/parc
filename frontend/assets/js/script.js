@@ -4,6 +4,20 @@
 // Passe par des en-têtes HTTP (pas par `data`) : muter `options.data` dans un
 // ajaxPrefilter casse la sérialisation interne de jQuery ("v.data.replace is
 // not a function"), les en-têtes n'ont pas ce problème.
+// Échappe une valeur avant de l'insérer dans du HTML (contenu ou attribut entre guillemets).
+// Toute donnée venant du serveur (titres, noms, descriptions...) est saisie par des
+// utilisateurs : sans cet échappement, un titre contenant du HTML s'exécuterait dans le
+// navigateur des administrateurs (XSS).
+function escapeHtml(value) {
+    return String(value === null || value === undefined ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+const esc = escapeHtml;
+
 $.ajaxPrefilter(function (options) {
     if (typeof options.url === 'string' && options.url.indexOf('backend/api/') !== -1) {
         const sessionToken = localStorage.getItem('session_token');
@@ -164,8 +178,8 @@ $(document).ready(function () {
             <div class="toast">
                 <div class="toast-icon"><i class="fas ${icon}"></i></div>
                 <div class="toast-body">
-                    <div class="toast-title">${title}</div>
-                    <div class="toast-message">${message}</div>
+                    <div class="toast-title">${esc(title)}</div>
+                    <div class="toast-message">${esc(message)}</div>
                 </div>
                 <div class="toast-close"><i class="fas fa-times"></i></div>
             </div>
@@ -198,7 +212,7 @@ $(document).ready(function () {
         if ($select.length === 0 || optionExists) {
             return;
         }
-        $select.append(`<option value="${value}">${value}</option>`);
+        $select.append(`<option value="${esc(value)}">${esc(value)}</option>`);
     }
 
     function resetTachesFilters() {
@@ -268,7 +282,7 @@ $(document).ready(function () {
         if (!userName) return;
 
         $.ajax({
-            url: `../backend/api/taches.php?action=user_task_stats&user_name=${userName}`,
+            url: `../backend/api/taches.php?action=user_task_stats&user_name=${encodeURIComponent(userName)}`,
             type: 'GET',
             dataType: 'json',
             success: function (stats) {
@@ -843,17 +857,17 @@ $(document).ready(function () {
 
                     const row = `
                         <tr>
-                            <td>${item.type}</td>
-                            <td>${item.marque} ${item.modele}</td>
-                            <td>${item.num_serie}</td>
+                            <td>${esc(item.type)}</td>
+                            <td>${esc(item.marque)} ${esc(item.modele)}</td>
+                            <td>${esc(item.num_serie)}</td>
                             <td>${dateAchat}</td>
-                            <td>${item.utilisateur_assigne || '-'}</td>
-                            <td>${item.service_affecte || '-'}</td>
+                            <td>${esc(item.utilisateur_assigne || '-')}</td>
+                            <td>${esc(item.service_affecte || '-')}</td>
                             <td>${dateDerniereAffect}</td>
                             <td>${statusBadge}</td>
                             <td class="actions">
-                                <button class="btn-action btn-qrcode" data-id="${item.id}" data-label="${item.type} ${item.marque} ${item.modele}" data-serie="${item.num_serie || ''}" data-service="${item.service_affecte || ''}" title="Étiquette d'inventaire (QR code)"><i class="fas fa-qrcode"></i></button>
-                                <button class="btn-action btn-historique" data-id="${item.id}" data-label="${item.type} ${item.marque} ${item.modele} (${item.num_serie})" title="Historique d'affectation"><i class="fas fa-history"></i></button>
+                                <button class="btn-action btn-qrcode" data-id="${item.id}" data-label="${esc(item.type)} ${esc(item.marque)} ${esc(item.modele)}" data-serie="${esc(item.num_serie || '')}" data-service="${esc(item.service_affecte || '')}" title="Étiquette d'inventaire (QR code)"><i class="fas fa-qrcode"></i></button>
+                                <button class="btn-action btn-historique" data-id="${item.id}" data-label="${esc(item.type)} ${esc(item.marque)} ${esc(item.modele)} (${esc(item.num_serie)})" title="Historique d'affectation"><i class="fas fa-history"></i></button>
                                 <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
                                 <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
                             </td>
@@ -888,8 +902,8 @@ $(document).ready(function () {
                         const fin = h.date_fin ? new Date(h.date_fin).toLocaleDateString('fr-FR') : '<em>En cours</em>';
                         rows += `
                             <tr>
-                                <td>${h.utilisateur_assigne || '-'}</td>
-                                <td>${h.service_affecte || '-'}</td>
+                                <td>${esc(h.utilisateur_assigne || '-')}</td>
+                                <td>${esc(h.service_affecte || '-')}</td>
                                 <td>${debut}</td>
                                 <td>${fin}</td>
                             </tr>
@@ -932,9 +946,9 @@ $(document).ready(function () {
         modalBody.html(`
             <div id="qrcode-etiquette" style="text-align:center; padding: 10px;">
                 <div id="qrcode-render" style="display:inline-block;"></div>
-                <div style="margin-top:10px; font-weight:600;">${label}</div>
-                <div style="color:#666;">N° série : ${numSerie || 'N/A'}</div>
-                ${service ? `<div style="color:#666;">Service : ${service}</div>` : ''}
+                <div style="margin-top:10px; font-weight:600;">${esc(label)}</div>
+                <div style="color:#666;">N° série : ${esc(numSerie || 'N/A')}</div>
+                ${service ? `<div style="color:#666;">Service : ${esc(service)}</div>` : ''}
             </div>
         `);
         modalFooter.html(`
@@ -969,7 +983,7 @@ $(document).ready(function () {
         const filter = $(selector);
         filter.empty().append(`<option value="">${defaultOptionText}</option>`);
         items.forEach(item => {
-            if (item) filter.append(`<option value="${item}">${item}</option>`);
+            if (item) filter.append(`<option value="${esc(item)}">${esc(item)}</option>`);
         });
     }
 
@@ -1023,8 +1037,8 @@ $(document).ready(function () {
                     $.each(data, function (index, item) {
                         const row = `
                             <tr>
-                                <td>${item.nom}</td>
-                                <td>${item.description || '-'}</td>
+                                <td>${esc(item.nom)}</td>
+                                <td>${esc(item.description || '-')}</td>
                                 <td class="actions">
                                     <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
                                     <button class="btn-action btn-delete" data-id="${item.id}" style="display: ${userRole === 'Administrateur' ? '' : 'none'};"><i class="fas fa-trash-alt"></i></button>
@@ -1087,10 +1101,10 @@ $(document).ready(function () {
                         }
                         const row = `
                             <tr>
-                                <td>${item.nom}</td>
-                                <td>${item.login}</td>
-                                <td>${item.email || '-'}</td>
-                                <td>${item.role}</td>
+                                <td>${esc(item.nom)}</td>
+                                <td>${esc(item.login)}</td>
+                                <td>${esc(item.email || '-')}</td>
+                                <td>${esc(item.role)}</td>
                                 <td>${effBadge}</td>
                                 <td class="actions">
                                     <button class="btn-action btn-edit" data-id="${item.id}"><i class="fas fa-pencil-alt"></i></button>
@@ -1137,7 +1151,7 @@ $(document).ready(function () {
 
         // Si l'utilisateur n'est pas admin, afficher ses tâches
         /*if (userRole !== 'Administrateur' && !filterDate && !filterStatut) {
-            apiUrl += `&assigne_a=${userName}`;
+            apiUrl += `&assigne_a=${encodeURIComponent(userName)}`;
         }*/
         //console.log("URL de l'API de la liste des taches: " + apiUrl);
 
@@ -1282,15 +1296,15 @@ $(document).ready(function () {
                         && (userRole === 'Administrateur' || (item.assigne_a && item.assigne_a === userName));
 
                     const row = `
-                        <tr data-date-ajout="${dateAjoutRaw}" data-date-limite="${dateLimiteRaw}" data-date-modification="${dateModifRaw}" data-statut-raw="${item.statut}">
+                        <tr data-date-ajout="${dateAjoutRaw}" data-date-limite="${dateLimiteRaw}" data-date-modification="${dateModifRaw}" data-statut-raw="${esc(item.statut)}">
                             <td>${statusBadge}${dormantBadge}</td>
-                            <td>${item.titre}<small class="tache-age" title="Créée le ${item.date_creation ? new Date(item.date_creation).toLocaleDateString('fr-FR') : '?'}">${formatAge(item.date_creation)}</small></td>
-                            <td>${item.motif_cause || '-'}</td>
-                            <td>${item.service_concerne || '-'}</td>
-                            <td>${item.materiel_concerne || '-'}</td>
+                            <td>${esc(item.titre)}<small class="tache-age" title="Créée le ${item.date_creation ? new Date(item.date_creation).toLocaleDateString('fr-FR') : '?'}">${formatAge(item.date_creation)}</small></td>
+                            <td>${esc(item.motif_cause || '-')}</td>
+                            <td>${esc(item.service_concerne || '-')}</td>
+                            <td>${esc(item.materiel_concerne || '-')}</td>
                             <td>${item.statut === 'En attente' ? (item.motif_attente || '-') : '-'}</td>
                             <td>${item.statut === 'En attente' ? (item.date_relance ? new Date(item.date_relance).toLocaleDateString('fr-FR') : '-') : '-'}</td>
-                            <td>${item.assigne_a || '-'}</td>
+                            <td>${esc(item.assigne_a || '-')}</td>
                             <td>${dateLimite}${echeanceBadge}</td>
                             <td>${priorityBadge}</td>
                             <td class="actions">
@@ -1337,7 +1351,7 @@ $(document).ready(function () {
 
         select.find('option:not(:first)').remove();
         distinctes.forEach(function (v) {
-            select.append(`<option value="${v}">${v}</option>`);
+            select.append(`<option value="${esc(v)}">${esc(v)}</option>`);
         });
 
         if (valeurActuelle && distinctes.includes(valeurActuelle)) {
@@ -1384,14 +1398,14 @@ $(document).ready(function () {
                 const tacheSelect = $('#tache-assigne');
                 tacheSelect.find('option:not(:first)').remove();
                 users.forEach(function(user) {
-                    tacheSelect.append(`<option value="${user.nom}">${user.nom} (${user.role})</option>`);
+                    tacheSelect.append(`<option value="${esc(user.nom)}">${esc(user.nom)} (${esc(user.role)})</option>`);
                 });
 
                 // Mettre à jour le select du matériel
                 const materielSelect = $('#utilisateur');
                 materielSelect.find('option:not(:first)').remove();
                 users.forEach(function(user) {
-                    materielSelect.append(`<option value="${user.nom}">${user.nom} (${user.role})</option>`);
+                    materielSelect.append(`<option value="${esc(user.nom)}">${esc(user.nom)} (${esc(user.role)})</option>`);
                 });
             },
             error: function() {
@@ -1418,7 +1432,7 @@ $(document).ready(function () {
                     typeSelect.find('option').not('[value=""]').not('[value="__new__"]').remove();
                     const newOption = typeSelect.find('option[value="__new__"]');
                     types.forEach(function(t) {
-                        $(`<option value="${t.type}">${t.type}</option>`).insertBefore(newOption);
+                        $(`<option value="${esc(t.type)}">${esc(t.type)}</option>`).insertBefore(newOption);
                     });
 
                     if (currentValue && currentValue !== '__new__') {
@@ -1443,7 +1457,7 @@ $(document).ready(function () {
                 const serviceSelect = $('#service');
                 serviceSelect.find('option:not(:first)').remove();
                 services.forEach(function(service) {
-                    serviceSelect.append(`<option value="${service.nom}">${service.nom}</option>`);
+                    serviceSelect.append(`<option value="${esc(service.nom)}">${esc(service.nom)}</option>`);
                 });
 
                 // Mettre à jour le select des tâches
@@ -1456,7 +1470,7 @@ $(document).ready(function () {
                     // Update options
                     tacheServiceSelect.find('option:not(:first)').remove();
                     services.forEach(function(service) {
-                        tacheServiceSelect.append(`<option value="${service.nom}">${service.nom}</option>`);
+                        tacheServiceSelect.append(`<option value="${esc(service.nom)}">${esc(service.nom)}</option>`);
 
                     });
                     
@@ -1472,7 +1486,7 @@ $(document).ready(function () {
                     // Update options
                     materielServiceSelect.find('option:not(:first)').remove();
                     services.forEach(function(service) {
-                        materielServiceSelect.append(`<option value="${service.nom}">${service.nom}</option>`);
+                        materielServiceSelect.append(`<option value="${esc(service.nom)}">${esc(service.nom)}</option>`);
                     });
                 }
 
@@ -1483,7 +1497,7 @@ $(document).ready(function () {
                     const currentValue = $sel.val();
                     $sel.find('option:not(:first)').remove();
                     services.forEach(function(service) {
-                        $sel.append(`<option value="${service.nom}">${service.nom}</option>`);
+                        $sel.append(`<option value="${esc(service.nom)}">${esc(service.nom)}</option>`);
                     });
                     if (currentValue) {
                         $sel.val(currentValue);
@@ -1533,14 +1547,14 @@ $(document).ready(function () {
         materielCache.forEach(function(item) {
             if (serviceFilter && item.service_affecte !== serviceFilter) return;
 
-            const displayText = `${item.type} ${item.marque} ${item.modele} (${item.num_serie})`;
+            const displayText = `${esc(item.type)} ${esc(item.marque)} ${esc(item.modele)} (${esc(item.num_serie)})`;
             if (recherche) {
                 const matchNom = displayText.toLowerCase().includes(recherche);
                 const matchSerie = (item.num_serie || '').toLowerCase().includes(recherche);
                 if (!matchNom && !matchSerie) return;
             }
 
-            $select.append(`<option value="${displayText}">${displayText}</option>`);
+            $select.append(`<option value="${esc(displayText)}">${esc(displayText)}</option>`);
         });
 
         $select.append('<option value="__new__">+ Ajouter un nouveau matériel...</option>');
@@ -1574,16 +1588,16 @@ $(document).ready(function () {
                     const date = new Date(activite.date).toLocaleDateString('fr-FR');
                     
                     // Création du badge de statut
-                    const statusBadge = `<span class="status-badge status-${activite.status_class}">${activite.statut}</span>`;
+                    const statusBadge = `<span class="status-badge status-${esc(activite.status_class)}">${esc(activite.statut)}</span>`;
                     
                     // Ajouter le service si disponible
-                    const serviceInfo = activite.service_concerne ? ` - ${activite.service_concerne}` : '';
+                    const serviceInfo = activite.service_concerne ? ` - ${esc(activite.service_concerne)}` : '';
                     
                     const row = `
                         <tr>
                             <td>${date}</td>
-                            <td>${activite.type}</td>
-                            <td>${activite.description}${serviceInfo}</td>
+                            <td>${esc(activite.type)}</td>
+                            <td>${esc(activite.description)}${serviceInfo}</td>
                             <td>${statusBadge}</td>
                         </tr>
                     `;
@@ -1623,9 +1637,9 @@ $(document).ready(function () {
                     const item = `
                         <div class="panne-item">
                             <div class="panne-info">
-                                <div class="panne-title">${t.titre} ${priorityBadge}</div>
-                                <div class="panne-details">Motif : ${t.motif_attente || '—'}</div>
-                                <div class="panne-details">Relance : ${dateRelance} &middot; ${t.assigne_a || '—'}${t.service_concerne ? ' &middot; ' + t.service_concerne : ''}</div>
+                                <div class="panne-title">${esc(t.titre)} ${priorityBadge}</div>
+                                <div class="panne-details">Motif : ${esc(t.motif_attente || '—')}</div>
+                                <div class="panne-details">Relance : ${dateRelance} &middot; ${esc(t.assigne_a || '—')}${t.service_concerne ? ' &middot; ' + esc(t.service_concerne) : ''}</div>
                             </div>
                             <div class="panne-count" title="Ancienneté de l'attente">${t.jours_en_attente} j</div>
                         </div>
@@ -1659,8 +1673,8 @@ $(document).ready(function () {
                     const panneItem = `
                         <div class="panne-item">
                             <div class="panne-info">
-                                <div class="panne-title">${panne.type} ${panne.marque} ${panne.modele}</div>
-                                <div class="panne-details">${panne.types_pannes}</div>
+                                <div class="panne-title">${esc(panne.type)} ${esc(panne.marque)} ${esc(panne.modele)}</div>
+                                <div class="panne-details">${esc(panne.types_pannes)}</div>
                             </div>
                             <div class="panne-count">${panne.nb_pannes}</div>
                         </div>
@@ -1702,7 +1716,7 @@ $(document).ready(function () {
                         repartitionContainer.append(`
                             <div class="panne-item">
                                 <div class="panne-info">
-                                    <div class="panne-title">${item.type}</div>
+                                    <div class="panne-title">${esc(item.type)}</div>
                                 </div>
                                 <div class="panne-count">${item.total}</div>
                             </div>
@@ -1721,8 +1735,8 @@ $(document).ready(function () {
                         renouvelerContainer.append(`
                             <div class="panne-item">
                                 <div class="panne-info">
-                                    <div class="panne-title">${item.type} ${item.marque} ${item.modele}</div>
-                                    <div class="panne-details">${item.num_serie} — acheté le ${dateAchat}</div>
+                                    <div class="panne-title">${esc(item.type)} ${esc(item.marque)} ${esc(item.modele)}</div>
+                                    <div class="panne-details">${esc(item.num_serie)} — acheté le ${dateAchat}</div>
                                 </div>
                                 <div class="panne-count">${item.age_annees} ans</div>
                             </div>
@@ -1756,7 +1770,7 @@ $(document).ready(function () {
                     const serviceItem = `
                         <div class="service-item">
                             <div class="service-info">
-                                <div class="service-name">${service.service}</div>
+                                <div class="service-name">${esc(service.service)}</div>
                                 <div class="service-stats">${service.taches_terminees}/${service.nb_taches} terminées</div>
                             </div>
                             <div class="service-count">${service.nb_taches}</div>
@@ -1795,7 +1809,7 @@ $(document).ready(function () {
                     const item = `
                         <div class="service-item">
                             <div class="service-info">
-                                <div class="service-name">${medaille} ${r.assigne_a}</div>
+                                <div class="service-name">${medaille} ${esc(r.assigne_a)}</div>
                                 <div class="service-stats">Tâches terminées sur la période sélectionnée</div>
                             </div>
                             <div class="service-count">${r.nb_terminees}</div>
@@ -2974,9 +2988,9 @@ $(document).ready(function () {
 
             const $card = $(`
                 <div class="kanban-card" draggable="true" data-id="${item.id}">
-                    <div class="kanban-card-title">${item.titre}</div>
+                    <div class="kanban-card-title">${esc(item.titre)}</div>
                     <div class="kanban-card-meta">${priorityBadge}${echeanceBadge}</div>
-                    ${item.assigne_a ? `<div class="kanban-card-assignee"><i class="fas fa-user"></i> ${item.assigne_a}</div>` : ''}
+                    ${item.assigne_a ? `<div class="kanban-card-assignee"><i class="fas fa-user"></i> ${esc(item.assigne_a)}</div>` : ''}
                 </div>
             `);
             $card.data('tache', item);
@@ -3037,7 +3051,7 @@ $(document).ready(function () {
         // Passage en "En attente" : on exige le motif d'attente et la date de relance,
         // pour que la pause soit tracée et relançable (visible par les décideurs).
         if (nouveauStatut === 'En attente') {
-            const motif = prompt(`Motif d'attente pour « ${tache.titre} » :`, tache.motif_attente || '');
+            const motif = prompt(`Motif d'attente pour « ${esc(tache.titre)} » :`, tache.motif_attente || '');
             if (motif === null) return; // annulé
             const dateRelance = prompt("Date de relance (format AAAA-MM-JJ) :", tache.date_relance ? tache.date_relance.slice(0, 10) : '');
             if (dateRelance === null || !/^\d{4}-\d{2}-\d{2}$/.test((dateRelance || '').trim())) {

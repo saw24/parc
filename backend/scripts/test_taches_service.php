@@ -1,4 +1,9 @@
 <?php
+// Script d'administration : exécutable en ligne de commande uniquement, jamais via HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Script réservé à la ligne de commande.');
+}
 // Script de test pour vérifier les nouvelles fonctionnalités des tâches avec service
 
 echo "<h1>Test des Nouvelles Fonctionnalités des Tâches</h1>";

@@ -12,6 +12,9 @@ require_once __DIR__ . '/../config/parametres.php';
 require_once __DIR__ . '/../lib/notifications.php';
 require_once __DIR__ . '/../middleware/auth.php';
 $currentUser = require_auth($pdo);
+require_once __DIR__ . '/../lib/taches.php';
+// Il faut au moins un droit lié aux pannes pour utiliser cette API ; le détail est contrôlé par action.
+require_any_permission($currentUser, ['tache.voir_toutes', 'tache.voir_siennes', 'tache.creer', 'tache.declarer']);
 
 // On détermine si la requête est de type GET ou POST
 $method = $_SERVER['REQUEST_METHOD'];
@@ -24,10 +27,21 @@ switch ($actions) {
         try {
             $sql = "SELECT * FROM t_taches";
             $params = [];
+            $conditions = [];
 
+            // Sans « voir toutes les pannes », on ne voit que celles dont on est déclarant ou assigné.
+            if (!has_permission($currentUser, 'tache.voir_toutes')) {
+                require_permission($currentUser, 'tache.voir_siennes');
+                $conditions[] = "(declarant_id = ? OR assigne_id = ?)";
+                $params[] = $currentUser['id'];
+                $params[] = $currentUser['id'];
+            }
             if (isset($_GET['assigne_a'])) {
-                $sql .= " WHERE assigne_a = ?";
+                $conditions[] = "assigne_a = ?";
                 $params[] = $_GET['assigne_a'];
+            }
+            if ($conditions) {
+                $sql .= " WHERE " . implode(' AND ', $conditions);
             }
 
             $sql .= " ORDER BY date_creation DESC";
@@ -45,6 +59,7 @@ switch ($actions) {
         break;
 
     case 'create':
+        require_any_permission($currentUser, ['tache.creer', 'tache.declarer']);
         if ($method !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'La méthode POST est requise.']);
@@ -65,8 +80,22 @@ switch ($actions) {
         // Date limite : par défaut la date du jour si non renseignée.
         $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : date('Y-m-d');
         $actions = isset($_POST['actions']) ? $_POST['actions'] : '';
-        $created_by_login = isset($_POST['created_by_login']) ? $_POST['created_by_login'] : '';
-        $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : '';
+        $created_by_login = $currentUser['login'];
+        $updated_by_login = $currentUser['login'];
+        // Un agent qui peut seulement DÉCLARER (sans « créer une tâche » à assignation libre) ne choisit
+        // ni l'assigné ni le statut : sa panne rejoint la file « Service IT », à l'état « À faire ».
+        if (!has_permission($currentUser, 'tache.creer')) {
+            $file = tache_file_commune($pdo);
+            if (!$file) {
+                http_response_code(500);
+                echo json_encode(['error' => 'File « Service IT » introuvable (migrations non appliquées ?).']);
+                exit();
+            }
+            $assigne_a = $file['nom'];
+            $statut = 'À faire';
+            $motif_attente = '';
+            $date_relance = null;
+        }
         // Validation : le titre, le statut, l'assigné à, la date limite et le service
         // concerné sont obligatoires (la priorité conserve son défaut existant).
         if (empty($titre) || empty($priorite) || empty($statut) || empty($assigne_a) || empty($date_limite) || empty($service_concerne)) {
@@ -87,7 +116,13 @@ switch ($actions) {
             $sql = "INSERT INTO t_taches (titre, motif_cause, description, priorite, statut, assigne_a, materiel_concerne, service_concerne, motif_attente, date_relance, date_limite, actions, created_by_login, updated_by_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
 
+            $pdo->beginTransaction();
             $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $motif_attente, $date_relance, $date_limite, $actions, $created_by_login, $updated_by_login]);
+            if ($result) {
+                $nouvelId = (int) $pdo->lastInsertId('t_taches_id_seq');
+                tache_apres_creation($pdo, $nouvelId, $currentUser, 'web');
+            }
+            $pdo->commit();
 
             if ($result) {
                 // Email best-effort : ne doit jamais faire échouer la réponse de création,
@@ -146,7 +181,7 @@ switch ($actions) {
         // Date limite : par défaut la date du jour si non renseignée.
         $date_limite = isset($_POST['date_limite']) && !empty($_POST['date_limite']) ? $_POST['date_limite'] : date('Y-m-d');
         $actions = isset($_POST['actions']) ? $_POST['actions'] : '';
-        $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
+        $updated_by_login = $currentUser['login']; // login de l'utilisateur courant
 
         // Validation : le titre, le statut, l'assigné à, la date limite et le service
         // concerné sont obligatoires.
@@ -165,14 +200,39 @@ switch ($actions) {
         try {
             // Mémorise l'assignation précédente pour ne notifier par email qu'en cas de
             // réassignation (et non à chaque simple mise à jour de la même tâche).
-            $ancienAssigneStmt = $pdo->prepare("SELECT assigne_a FROM t_taches WHERE id = ?");
-            $ancienAssigneStmt->execute([$id]);
-            $ancienAssigne = $ancienAssigneStmt->fetchColumn();
+            $ancienneStmt = $pdo->prepare("SELECT * FROM t_taches WHERE id = ?");
+            $ancienneStmt->execute([$id]);
+            $ancienne = $ancienneStmt->fetch();
+            if (!$ancienne || !tache_peut_voir($currentUser, $ancienne)) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Tâche non trouvée.']);
+                exit();
+            }
+            $ancienAssigne = $ancienne['assigne_a'];
+
+            // Droits de modification (contrôlés ici, plus seulement masqués dans l'interface) :
+            //  - tache.modifier_toutes : toute tâche ;
+            //  - tache.modifier_siennes : les tâches qui nous sont assignées ;
+            //  - tache.prendre : prise en charge d'une tâche « À faire » (passage à « En cours »).
+            $estProprietaire = $ancienne['assigne_id'] !== null && (int) $ancienne['assigne_id'] === (int) $currentUser['id'];
+            $estPriseEnCharge = $ancienne['statut'] === 'À faire' && $statut === 'En cours' && has_permission($currentUser, 'tache.prendre');
+            if (!has_permission($currentUser, 'tache.modifier_toutes')
+                && !(has_permission($currentUser, 'tache.modifier_siennes') && $estProprietaire)
+                && !$estPriseEnCharge) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Vous ne pouvez modifier que les tâches qui vous sont assignées.']);
+                exit();
+            }
 
             $sql = "UPDATE t_taches SET titre = ?, motif_cause = ?, description = ?, priorite = ?, statut = ?, assigne_a = ?, materiel_concerne = ?, service_concerne = ?, motif_attente = ?, date_relance = ?, date_limite = ?, actions = ?, updated_by_login = ? WHERE id = ?";
             $stmt = $pdo->prepare($sql);
 
+            $pdo->beginTransaction();
             $result = $stmt->execute([$titre, $motif_cause, $description, $priorite, $statut, $assigne_a, $materiel_concerne, $service_concerne, $motif_attente, $date_relance, $date_limite, $actions, $updated_by_login, $id]);
+            if ($result) {
+                tache_apres_modification($pdo, $id, $ancienne, $currentUser);
+            }
+            $pdo->commit();
 
             if ($result) {
                 if ($assigne_a !== '' && $assigne_a !== $ancienAssigne) {
@@ -204,6 +264,7 @@ switch ($actions) {
         break;
 
     case 'delete':
+        require_permission($currentUser, 'tache.supprimer');
         if ($method !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'La méthode POST est requise.']);
@@ -256,6 +317,12 @@ switch ($actions) {
         }
 
         $userName = $_GET['user_name'];
+        // Les statistiques d'un autre agent ne sont visibles qu'avec « voir toutes les pannes ».
+        if ($userName !== $currentUser['nom'] && !has_permission($currentUser, 'tache.voir_toutes')) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Accès refusé.']);
+            exit();
+        }
         $params = get_parametres($pdo);
         $seuilEcheanceProche = (int) $params['seuil_echeance_proche_jours'];
         $fenetreEfficacite = (int) $params['efficacite_fenetre_jours'];

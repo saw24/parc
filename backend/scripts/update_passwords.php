@@ -1,4 +1,9 @@
 <?php
+// Script d'administration : exécutable en ligne de commande uniquement, jamais via HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Script réservé à la ligne de commande.');
+}
 // Script pour mettre à jour les mots de passe avec le bon hachage
 
 // Inclusion du fichier de connexion à la base de données

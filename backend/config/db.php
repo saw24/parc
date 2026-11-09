@@ -17,7 +17,9 @@ if (empty($env)) {
 // Paramètres de connexion (avec valeurs par défaut de secours si .env absent)
 $host     = $env['DB_HOST']     ?? 'localhost';
 $port     = $env['DB_PORT']     ?? '5432';
-$dbname   = $env['DB_NAME']     ?? 'taches';
+// PARC_DB_NAME (variable d'environnement) permet aux scripts/tests de cibler une autre base
+// sans toucher au .env (ex: base jetable pour tester les migrations).
+$dbname   = getenv('PARC_DB_NAME') ?: ($env['DB_NAME'] ?? 'taches');
 $username = $env['DB_USER']     ?? 'saw24';
 $password = $env['DB_PASSWORD'] ?? 'saw24';
 
@@ -43,7 +45,7 @@ try {
     // En production, il faudrait logguer cette erreur plutôt que de l'afficher
     header('Content-Type: application/json');
     http_response_code(500);
-    echo json_encode(['error' => 'Erreur de connexion à la base de données: ' . $e->getMessage()]);
+    echo json_encode(['error' => 'Service momentanément indisponible.']);
     error_log('DB Connection Error: ' . $e->getMessage());
     exit(); // Arrête l'exécution du script
 }

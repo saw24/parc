@@ -1,4 +1,9 @@
 <?php
+// Script d'administration : exécutable en ligne de commande uniquement, jamais via HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Script réservé à la ligne de commande.');
+}
 // ⚠️ LEGACY (MySQL) : script historique pour l'ancienne base MySQL "parc_info".
 // Depuis la migration vers PostgreSQL (base "taches"), le schéma est créé par
 // backend/sql/postgres/schema.sql. Ne pas ré-exécuter ce script tel quel.

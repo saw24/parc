@@ -5,3 +5,4 @@ node_modules/
 # qui elles font partie de l'app livrée (voir frontend/assets/vendor/).
 /backend/vendor/
 *.log
+backend/backups/

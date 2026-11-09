@@ -5,6 +5,30 @@ require_once __DIR__ . '/../config/parametres.php';
 require_once __DIR__ . '/../middleware/auth.php';
 $currentUser = require_auth($pdo);
 
+/** Le rôle doit exister dans t_roles (empêche d'inscrire un rôle arbitraire envoyé par le client). */
+function role_existe(PDO $pdo, string $role): bool
+{
+    $st = $pdo->prepare("SELECT 1 FROM t_roles WHERE nom = ?");
+    $st->execute([$role]);
+    return (bool) $st->fetchColumn();
+}
+
+/** Le compte technique « Service IT » (file commune) n'est ni modifiable ni supprimable ici. */
+function est_file_commune_id(PDO $pdo, int $id): bool
+{
+    $st = $pdo->prepare("SELECT est_file_commune FROM t_utilisateurs WHERE id = ?");
+    $st->execute([$id]);
+    return (bool) $st->fetchColumn();
+}
+
+/** Nombre d'administrateurs, hors l'utilisateur $exclureId (pour ne jamais laisser l'app sans admin). */
+function compter_autres_admins(PDO $pdo, int $exclureId): int
+{
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM t_utilisateurs WHERE role = 'Administrateur' AND id <> ?");
+    $stmt->execute([$exclureId]);
+    return (int) $stmt->fetchColumn();
+}
+
 // Activation du rapport d'erreurs pour le débogage
 error_reporting(E_ALL);
 ini_set('display_errors', 0); // ne jamais afficher les erreurs PHP au client (fuite d'infos internes)
@@ -24,20 +48,20 @@ switch ($action) {
         // Lister les utilisateurs est accessible aux administrateurs et techniciens
         // (pour la sélection de l'assigné sur la fiche de tâches et matériel).
         // Un utilisateur non-admin ne peut lire que sa propre fiche détaillée avec ?id=...
-        if (!isset($_GET['id'])) {
-            require_role($currentUser, ['Administrateur', 'Technicien']);
+        if (!isset($_GET['id']) || intval($_GET['id']) !== intval($currentUser['id'])) {
+            require_permission($currentUser, 'utilisateur.lister');
         }
 
         try {
             // Le mot de passe (haché) n'est jamais renvoyé au client, même en interne :
             // on sélectionne explicitement les colonnes plutôt que SELECT *.
-            $userColumns = "u.id, u.nom, u.login, u.email, u.role, u.date_creation, u.updated_by_login, u.created_by_login, u.date_modification";
+            $userColumns = "u.id, u.nom, u.login, u.email, u.role, u.date_creation, u.updated_by_login, u.created_by_login, u.date_modification, u.telephone, u.service_id, u.actif, u.connexion_autorisee, u.est_file_commune";
 
             // Jauge d'efficacité (Terminées / (Terminées + En retard) sur la fenêtre
             // configurée) : calculée uniquement pour les administrateurs (voir
             // isAdmin plus bas) — un utilisateur voit la sienne via son propre tableau
             // de bord (taches.php::user_task_stats), jamais celle des autres ici.
-            $isAdmin = ($currentUser['role'] === 'Administrateur');
+            $isAdmin = has_permission($currentUser, 'utilisateur.gerer');
             $effJoin = '';
             $effColumns = '';
             $effParams = [];
@@ -97,8 +121,7 @@ switch ($action) {
     // BLOC POUR LA CRÉATION
     // ===============================================
     case 'create':
-        // Gestion des utilisateurs réservée aux administrateurs
-        require_role($currentUser, ['Administrateur']);
+        require_permission($currentUser, 'utilisateur.gerer');
 
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
@@ -116,7 +139,7 @@ switch ($action) {
         $email = isset($_POST['email']) ? $_POST['email'] : '';
         $role = isset($_POST['role']) ? $_POST['role'] : '';
         $mot_de_passe = isset($_POST['mot_de_passe']) ? $_POST['mot_de_passe'] : '';
-        $created_by_login = isset($_POST['created_by_login']) ? $_POST['created_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
+        $created_by_login = $currentUser['login']; // login de l'utilisateur courant
 
         // Store all fields and their values for validation error messages
         $fields = [
@@ -129,6 +152,12 @@ switch ($action) {
 
         // Log the extracted values
         error_log("CREATE - Extracted values: nom=$nom, login=$login, role=$role, mot_de_passe=[REDACTED], created_by_login=$created_by_login");
+
+        if (!role_existe($pdo, (string) $role)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Rôle invalide.']);
+            exit();
+        }
 
         // Validation simple
         if (empty($nom) || empty($login) || empty($role) || empty($mot_de_passe)) {
@@ -214,13 +243,13 @@ switch ($action) {
         $email = isset($_POST['email']) ? $_POST['email'] : '';
         $role = isset($_POST['role']) ? $_POST['role'] : '';
         $mot_de_passe = isset($_POST['mot_de_passe']) ? $_POST['mot_de_passe'] : '';
-        $updated_by_login = isset($_POST['updated_by_login']) ? $_POST['updated_by_login'] : $_SESSION['login']; // login de l'utilisateur courant
+        $updated_by_login = $currentUser['login']; // login de l'utilisateur courant
 
         // Gestion des utilisateurs réservée aux administrateurs, à une exception près :
         // un utilisateur peut modifier SON PROPRE compte (ex: changer son mot de passe).
-        $isSelfEdit = ($currentUser['role'] !== 'Administrateur') && (intval($id) === intval($currentUser['id']));
-        if ($currentUser['role'] !== 'Administrateur' && !$isSelfEdit) {
-            require_role($currentUser, ['Administrateur']); // renvoie 403 et arrête l'exécution
+        $isSelfEdit = !has_permission($currentUser, 'utilisateur.gerer') && (intval($id) === intval($currentUser['id']));
+        if (!$isSelfEdit) {
+            require_permission($currentUser, 'utilisateur.gerer'); // renvoie 403 et arrête l'exécution
         }
         if ($isSelfEdit) {
             // Un utilisateur non-administrateur ne peut pas s'auto-attribuer un autre
@@ -239,6 +268,28 @@ switch ($action) {
 
         // Log the extracted values
         error_log("UPDATE - Extracted values: id=$id, nom=$nom, login=$login, role=$role, mot_de_passe=[REDACTED], updated_by_login=$updated_by_login");
+
+        if (!role_existe($pdo, (string) $role)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Rôle invalide.']);
+            exit();
+        }
+
+        if (intval($id) > 0 && est_file_commune_id($pdo, intval($id))) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Le compte « Service IT » (file commune) ne peut pas être modifié.']);
+            exit();
+        }
+        // On ne retire pas le rôle du dernier administrateur.
+        if (intval($id) > 0 && $role !== 'Administrateur') {
+            $roleActuel = $pdo->prepare("SELECT role FROM t_utilisateurs WHERE id = ?");
+            $roleActuel->execute([intval($id)]);
+            if ($roleActuel->fetchColumn() === 'Administrateur' && compter_autres_admins($pdo, intval($id)) === 0) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Impossible de retirer le rôle du dernier administrateur.']);
+                exit();
+            }
+        }
 
         // Validation simple
         if (empty($id) || empty($nom) || empty($login) || empty($role)) {
@@ -307,8 +358,7 @@ switch ($action) {
     // BLOC POUR LA SUPPRESSION
     // ===============================================
     case 'delete':
-        // Gestion des utilisateurs réservée aux administrateurs
-        require_role($currentUser, ['Administrateur']);
+        require_permission($currentUser, 'utilisateur.gerer');
 
         // On s'assure que la requête est bien de type POST
         if ($method !== 'POST') {
@@ -333,7 +383,26 @@ switch ($action) {
             exit();
         }
 
+        if (intval($id) === intval($currentUser['id'])) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Vous ne pouvez pas supprimer votre propre compte.']);
+            exit();
+        }
+        if (est_file_commune_id($pdo, intval($id))) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Le compte « Service IT » (file commune) ne peut pas être supprimé.']);
+            exit();
+        }
+
         try {
+            $roleCible = $pdo->prepare("SELECT role FROM t_utilisateurs WHERE id = ?");
+            $roleCible->execute([intval($id)]);
+            if ($roleCible->fetchColumn() === 'Administrateur' && compter_autres_admins($pdo, intval($id)) === 0) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Impossible de supprimer le dernier administrateur.']);
+                exit();
+            }
+
             // Requête de suppression préparée
             $sql = "DELETE FROM t_utilisateurs WHERE id = ?";
             $stmt = $pdo->prepare($sql);

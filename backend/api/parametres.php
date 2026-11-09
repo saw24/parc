@@ -31,7 +31,7 @@ switch ($action) {
         break;
 
     case 'read':
-        require_role($currentUser, ['Administrateur']);
+        require_permission($currentUser, 'parametre.gerer');
         try {
             $params = get_parametres($pdo);
             // Le mot de passe SMTP n'est jamais renvoyé en clair : seul un booléen indique
@@ -53,7 +53,7 @@ switch ($action) {
         break;
 
     case 'update':
-        require_role($currentUser, ['Administrateur']);
+        require_permission($currentUser, 'parametre.gerer');
         if ($method !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'La méthode POST est requise.']);
@@ -110,7 +110,7 @@ switch ($action) {
         break;
 
     case 'test_email':
-        require_role($currentUser, ['Administrateur']);
+        require_permission($currentUser, 'parametre.gerer');
         if ($method !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'La méthode POST est requise.']);
