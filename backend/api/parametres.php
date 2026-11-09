@@ -39,6 +39,8 @@ switch ($action) {
             // redemander ou afficher un simple "mot de passe déjà enregistré".
             $smtpPasswordConfigure = trim($params['smtp_password']) !== '';
             unset($params['smtp_password']);
+            $params['sms_jeton_configure'] = trim($params['sms_jeton']) !== '';
+            unset($params['sms_jeton']);
             foreach (get_parametres_internes() as $cleInterne) {
                 unset($params[$cleInterne]);
             }

@@ -16,5 +16,7 @@ class ParcApp : Application() {
         store = SecureStore(this)
         api = ApiClient(store)
         repo = Repository(this, api, store)
+        Alertes.creerCanal(this)
+        if (store.loggedIn) Alertes.planifierScrutation(this)
     }
 }

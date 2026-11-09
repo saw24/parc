@@ -78,6 +78,31 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         return tache(t.id)
     }
 
+    // ------------------------------------------------------------------ Notifications
+    /** Les 50 dernières notifications, plus le nombre de non lues. */
+    suspend fun notifications(): Pair<List<AppNotification>, Int> {
+        val r = api.get("notifications", mapOf("limit" to "50"))
+        return r.data<List<AppNotification>>() to (r["meta"]?.jsonObject?.get("non_lues")?.jsonPrimitive?.intOrNull ?: 0)
+    }
+
+    suspend fun marquerLues(ids: List<Long>) {
+        if (ids.isNotEmpty()) api.post("notifications/lues", buildJsonObject { putJsonArray("ids") { ids.forEach { add(it) } } })
+    }
+
+    suspend fun toutMarquerLu() { api.post("notifications/lues", buildJsonObject { put("toutes", true) }) }
+
+    suspend fun preferences(email: Boolean, sms: Boolean): Utilisateur {
+        val u: Utilisateur = api.patch("me", buildJsonObject { put("notif_email", email); put("notif_sms", sms) }).data()
+        store.userJson = json.encodeToString(Utilisateur.serializer(), u)
+        return u
+    }
+
+    /** « Je prends » : atomique côté serveur. Lève ApiException(409) si un collègue a été plus rapide. */
+    suspend fun prendre(id: Int): Tache {
+        api.post("taches/$id/prendre", buildJsonObject { })
+        return tache(id)
+    }
+
     // ------------------------------------------------------------------ Envoi différé
     fun brouillons(): List<Brouillon> = store.outboxJson?.let {
         runCatching { json.decodeFromString(ListSerializer(Brouillon.serializer()), it) }.getOrNull()

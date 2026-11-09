@@ -3,9 +3,12 @@
 // Toute modification du cycle de vie d'une panne (prise en charge, affectation, statut,
 // commentaire) passe par tache_transition() : une seule transaction qui verrouille la ligne,
 // vérifie les droits, met à jour la tâche et écrit l'évènement d'historique. C'est cet
-// historique que le système de notification lira (lot 4).
+// historique que les notifications lisent (lib/notif_pannes.php).
 //
 // À inclure après backend/config/db.php et backend/middleware/auth.php.
+
+require_once __DIR__ . '/../config/parametres.php';
+require_once __DIR__ . '/notif_pannes.php';
 
 const TACHE_STATUTS_FINAUX = ['Terminé', 'Annulé'];
 
@@ -72,6 +75,7 @@ function tache_evenement(PDO $pdo, int $tacheId, string $type, ?array $acteur, a
         $d['ancien_assigne_id'] ?? null, $d['nouveau_assigne_id'] ?? null,
         $d['commentaire'] ?? null, ($d['visible_declarant'] ?? true) ? 'true' : 'false',
     ]);
+    notif_planifier($pdo);   // traité après la validation de la transaction, en fin de requête
 }
 
 /**

@@ -43,7 +43,11 @@ route('POST', 'auth/logout', function (array $c): void {
     api_data(['deconnecte' => true]);
 });
 
-route('GET', 'me', fn(array $c) => api_data(v1_user_json($c['pdo'], $c['user'])));
+route('GET', 'me', function (array $c): void {
+    $st = $c['pdo']->prepare("SELECT notif_email, notif_sms FROM t_utilisateurs WHERE id = ?");
+    $st->execute([$c['user']['id']]);
+    api_data(v1_user_json($c['pdo'], array_merge($c['user'], $st->fetch())));
+});
 
 route('PATCH', 'me', function (array $c): void {
     $email = api_str($c['body'], 'email', false, 255);
@@ -60,11 +64,19 @@ route('PATCH', 'me', function (array $c): void {
             $sets[] = "$col = ?"; $args[] = $val;
         }
     }
+    foreach (['notif_email', 'notif_sms'] as $col) {   // préférences de canaux
+        if (array_key_exists($col, $c['body'])) {
+            if (!is_bool($c['body'][$col])) {
+                api_fail(422, 'champ_invalide', 'Valeur booléenne attendue.', ['champ' => $col]);
+            }
+            $sets[] = "$col = ?"; $args[] = $c['body'][$col] ? 'true' : 'false';
+        }
+    }
     if ($sets) {
         $args[] = $c['user']['id'];
         $c['pdo']->prepare('UPDATE t_utilisateurs SET ' . implode(', ', $sets) . ', updated_by_login = login WHERE id = ?')->execute($args);
     }
-    $st = $c['pdo']->prepare("SELECT email, telephone FROM t_utilisateurs WHERE id = ?");
+    $st = $c['pdo']->prepare("SELECT email, telephone, notif_email, notif_sms FROM t_utilisateurs WHERE id = ?");
     $st->execute([$c['user']['id']]);
     api_data(v1_user_json($c['pdo'], array_merge($c['user'], $st->fetch())));
 });

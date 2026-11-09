@@ -49,10 +49,11 @@ function v1_user_json(PDO $pdo, array $user): array
         'id' => (int) $user['id'], 'nom' => $user['nom'], 'login' => $user['login'], 'email' => $user['email'] ?? null,
         'telephone' => $user['telephone'] ?? null, 'role' => $user['role'], 'service' => $service,
         'permissions' => $user['permissions'], 'agent_it' => in_array('tache.prendre', $user['permissions'], true),
+        'notifications' => ['email' => (bool) ($user['notif_email'] ?? true), 'sms' => (bool) ($user['notif_sms'] ?? true)],
     ];
 }
 
-foreach (['auth', 'divers', 'taches', 'materiel'] as $fichier) {
+foreach (['auth', 'divers', 'taches', 'materiel', 'notifications'] as $fichier) {
     require __DIR__ . "/routes/$fichier.php";
 }
 

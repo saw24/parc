@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class Utilisateur(
     val id: Int, val nom: String, val login: String, val email: String? = null, val telephone: String? = null,
     val role: String = "", val service: Service? = null, val permissions: List<String> = emptyList(),
-    @SerialName("agent_it") val agentIt: Boolean = false,
+    @SerialName("agent_it") val agentIt: Boolean = false, val notifications: Preferences = Preferences(),
 ) { fun peut(code: String) = code in permissions }
 
 @Serializable data class Dates(
@@ -51,3 +51,13 @@ import kotlinx.serialization.Serializable
     val serviceId: Int? = null, val materielId: Int? = null, val cree: Long = System.currentTimeMillis(),
     val erreur: String? = null,
 )
+
+@Serializable data class TacheRef(val id: Int, val reference: String? = null, val statut: String = "")
+
+@Serializable data class AppNotification(
+    val id: Long, val type: String, val titre: String, val message: String, val tache: TacheRef,
+    @SerialName("peut_prendre") val peutPrendre: Boolean = false, val lue: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+@Serializable data class Preferences(val email: Boolean = true, val sms: Boolean = true)

@@ -59,6 +59,20 @@ function get_default_parametres(): array
         'app_apk_url'          => '', // lien de téléchargement de l'APK (distribution directe)
         'app_notes_version'    => '',
 
+        // --- Notifications de pannes (application mobile) : canaux facultatifs, jamais bloquants ---
+        // E-mail : utilise 'email_notifications_actives' et la configuration SMTP ci-dessus.
+        // SMS : passerelle HTTP générique. sms_corps est un modèle JSON où {to}, {message} et
+        // {from} sont remplacés (valeurs échappées). Succès = réponse HTTP 2xx.
+        'sms_actif'       => '0',
+        'sms_url'         => '',
+        'sms_jeton'       => '',       // envoyé en « Authorization: Bearer … » si renseigné
+        'sms_expediteur'  => 'ParcIT',
+        'sms_corps'       => '{"to":"{to}","from":"{from}","message":"{message}"}',
+        // Push FCM (HTTP v1) : identifiant du projet Firebase + chemin du fichier JSON du compte de service.
+        'fcm_actif'       => '0',
+        'fcm_projet'      => '',
+        'fcm_compte_service' => '',
+
         // --- Bookkeeping interne (dernier envoi), non exposé dans l'écran Paramètres ---
         'last_digest_sent_at'   => '',
         'last_escalade_sent_at' => '',

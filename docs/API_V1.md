@@ -36,9 +36,11 @@ Code : `backend/api/v1/` · logique partagée : `backend/lib/` · tests : `backe
 | Route | Droit requis | Notes |
 |---|---|---|
 | `POST auth/logout` | — | révoque l'appareil courant |
-| `GET me` · `PATCH me` `{email, telephone}` | — | profil, rôle, `permissions[]`, `agent_it` |
+| `GET me` · `PATCH me` `{email, telephone, notif_email, notif_sms}` | — | profil, rôle, `permissions[]`, `agent_it` |
 | `POST me/mot_de_passe` `{actuel, nouveau}` | — | ≥ 10 caractères ; déconnecte les autres appareils et sessions web |
 | `GET appareils` · `DELETE appareils/{id}` · `PUT appareils/courant` `{fcm_token?, version_app?, nom?}` | — | `fcm_token` : notifications push (optionnelles) |
+| `GET notifications` | — | boîte de réception (50 max, plus récentes d'abord) : `apres_id=N`, `non_lues=1` ; `meta.non_lues` = compteur. Chaque entrée : `type`, `titre`, `message`, `tache{id,reference,statut}`, `peut_prendre` (afficher « Je prends » : appeler ensuite `POST taches/{id}/prendre`), `lue` |
+| `POST notifications/lues` `{ids:[…]}` ou `{toutes:true}` | — | marque comme lues (uniquement les siennes) |
 | `GET referentiels` | — | services, types de matériel, priorités, statuts, délais SLA |
 | `GET agents` | `tache.affecter` | agents IT + file « Service IT », avec leur charge |
 | `GET accueil` | accès aux pannes | compteurs : mes pannes ouvertes, mes assignées, file, retards SLA, relances dues |
@@ -69,4 +71,4 @@ Chaque panne porte `actions` (`prendre`, `affecter`, `changer_statut`, `rouvrir`
 - **URL sans `index.php`** (facultatif) — Caddy : `rewrite /parc/backend/api/v1/* /parc/backend/api/v1/index.php{path}` ; nginx : `try_files $uri /backend/api/v1/index.php$is_args$args;` avec `fastcgi_split_path_info`.
 - **Migration** : `007_api_mobile.sql` (table `t_appareils`, colonne `t_taches.client_uuid`) avant de déployer le code.
 - **Mise à jour de l'application** : renseigner `app_version_courante`, `app_version_minimale`, `app_apk_url` dans la table `t_parametres` (écran Paramètres au lot 6).
-- **Non fait à ce stade** : notifications push/e-mail/SMS (lot 4) ; le client peut déjà enregistrer son `fcm_token`.
+- **Notifications** : voir `docs/MEMO_LOT4_NOTIFICATIONS.md` (migration 008, script `scripts/notifications.php`, paramètres `sms_*` / `fcm_*`).

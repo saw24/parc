@@ -55,7 +55,22 @@ fun Root(vm: AppViewModel) {
             else when (val e = vm.ecran) {
                 Ecran.Liste -> EcranListe(vm)
                 Ecran.Declarer -> { BackHandler { vm.retour() }; EcranDeclarer(vm) }
+                Ecran.Notifications -> { BackHandler { vm.retour() }; EcranNotifications(vm) }
                 is Ecran.Detail -> { BackHandler { vm.retour() }; EcranDetail(vm) }
+            }
+            vm.alerte?.let { n ->
+                AlertDialog(onDismissRequest = { vm.fermerAlerte() },
+                    title = { Text(n.titre) }, text = { Text(n.message) },
+                    confirmButton = {
+                        if (n.peutPrendre) TextButton({ vm.prendre(n.tache.id) }) { Text("Je prends") }
+                        else TextButton({ vm.ouvrirNotification(n) }) { Text("Voir") }
+                    },
+                    dismissButton = {
+                        Row {
+                            if (n.peutPrendre) TextButton({ vm.ouvrirNotification(n) }) { Text("Voir") }
+                            TextButton({ vm.fermerAlerte() }) { Text("Plus tard") }
+                        }
+                    })
             }
             if (vm.chargement) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
@@ -89,6 +104,7 @@ fun EcranListe(vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("Mes pannes") }, actions = {
+                TextButton({ vm.ouvrirNotifications() }) { Text(if (vm.nonLues > 0) "Alertes (${vm.nonLues})" else "Alertes") }
                 TextButton({ vm.actualiser() }) { Text("Actualiser") }
                 Box {
                     TextButton({ menu = true }) { Text(vm.utilisateur?.nom ?: "Compte") }
@@ -207,6 +223,7 @@ fun EcranDetail(vm: AppViewModel) {
                 OutlinedTextField(commentaire, { commentaire = it }, label = { Text("Ajouter un commentaire") }, modifier = Modifier.fillMaxWidth())
                 Button({ vm.commenter(commentaire.trim()); commentaire = "" }, enabled = commentaire.isNotBlank() && !vm.chargement) { Text("Envoyer le commentaire") }
             }
+            if (t.actions.prendre) Button({ vm.prendre(t.id) }, enabled = !vm.chargement, modifier = Modifier.fillMaxWidth()) { Text("Je prends cette panne") }
             if (t.actions.annuler) OutlinedButton({ confirmer = true }) { Text("Annuler cette panne") }
         }
         if (confirmer) AlertDialog(onDismissRequest = { confirmer = false },
@@ -226,4 +243,40 @@ private fun libelleEvenement(e: Evenement): String {
         "commentaire" -> "$qui : ${e.commentaire ?: ""}"
         else -> "${e.type} ($qui)"
     } + if (e.type != "commentaire" && !e.commentaire.isNullOrBlank()) "\n« ${e.commentaire} »" else ""
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EcranNotifications(vm: AppViewModel) {
+    val prefs = vm.utilisateur?.notifications
+    Scaffold(topBar = {
+        TopAppBar(title = { Text("Alertes") }, navigationIcon = { TextButton({ vm.retour() }) { Text("Retour") } },
+            actions = { if (vm.nonLues > 0) TextButton({ vm.toutMarquerLu() }) { Text("Tout lire") } })
+    }) { pad ->
+        LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (prefs != null) item {
+                Card { Column(Modifier.padding(12.dp)) {
+                    Text("Me prévenir aussi par", style = MaterialTheme.typography.titleSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(prefs.email, { vm.preferences(it, prefs.sms) }); Spacer(Modifier.width(8.dp)); Text("E-mail")
+                        Spacer(Modifier.width(24.dp))
+                        Switch(prefs.sms, { vm.preferences(prefs.email, it) }); Spacer(Modifier.width(8.dp)); Text("SMS")
+                    }
+                    Text("Les alertes dans l'application restent toujours actives.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                } }
+            }
+            if (vm.notifications.isEmpty()) item { Text("Aucune alerte pour le moment.", Modifier.padding(16.dp)) }
+            items(vm.notifications, key = { it.id }) { n ->
+                Card(onClick = { vm.ouvrirNotification(n) }, modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = if (n.lue) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(n.titre, style = MaterialTheme.typography.titleSmall)
+                        Text(n.message, style = MaterialTheme.typography.bodyMedium)
+                        Text(dateLisible(n.createdAt), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        if (n.peutPrendre) Button({ vm.prendre(n.tache.id) }, enabled = !vm.chargement) { Text("Je prends") }
+                    }
+                }
+            }
+        }
+    }
 }

@@ -58,6 +58,10 @@ class SecureStore(context: Context) {
     var outboxJson: String?
         get() = getSecret("outbox"); set(v) = putSecret("outbox", v)
 
+    /** Dernière notification déjà présentée à l'utilisateur (évite de la signaler deux fois). */
+    var dernierNotifId: Long
+        get() = prefs.getLong("notif_id", 0); set(v) = prefs.edit().putLong("notif_id", v).apply()
+
     val loggedIn: Boolean get() = refreshToken != null
 
     /** Efface la session (la file d'envoi est conservée pour ne rien perdre). */
