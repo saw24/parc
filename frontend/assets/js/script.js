@@ -3397,10 +3397,6 @@ $(document).ready(function () {
             updated_by_login: localStorage.getItem('user_login') || ''
         };
 
-        // Le service n'est envoyé que s'il est modifiable (champ visible : administrateur).
-        if ($('#service-form-group').is(':visible')) {
-            formData.service_id = $('#user-service').val();
-        }
 
         // Déterminer si c'est une création ou une mise à jour
         const hasId = $(this).find('input[name="id"]').length > 0;
@@ -3519,6 +3515,11 @@ $(document).ready(function () {
             created_by_login: localStorage.getItem('user_login') || '',
             updated_by_login: localStorage.getItem('user_login') || '',
         };
+
+        // Le service n'est envoyé que s'il est modifiable (champ visible : administrateur).
+        if ($('#service-form-group').is(':visible')) {
+            formData.service_id = $('#user-service').val();
+        }
         
         // Déterminer si c'est une création ou une mise à jour
         const hasId = $(this).find('input[name="id"]').length > 0;
