@@ -255,13 +255,179 @@ route('DELETE', 'utilisateurs/{id}', function (array $c): void {
     api_data(['supprime' => true]);
 });
 
-/** Rôles disponibles (pour attribuer un rôle à un utilisateur). La gestion des rôles eux-mêmes reste sur le site. */
+// ---------------------------------------------------------------- Rôles et permissions
+
+function v1_role_json(PDO $pdo, array $r, bool $avecPermissions): array
+{
+    $out = ['id' => (int) $r['id'], 'nom' => $r['nom'], 'description' => $r['description'], 'systeme' => (bool) $r['systeme'],
+        'nb_utilisateurs' => (int) $r['nb_utilisateurs']];
+    if ($avecPermissions) {
+        $out['permissions'] = $r['systeme'] ? $pdo->query("SELECT code FROM t_permissions ORDER BY ordre")->fetchAll(PDO::FETCH_COLUMN)
+            : array_map(fn($x) => $x, (function () use ($pdo, $r) {
+                $st = $pdo->prepare("SELECT p.code FROM t_roles_permissions rp JOIN t_permissions p ON p.code = rp.permission_code WHERE rp.role_id = ? ORDER BY p.ordre");
+                $st->execute([$r['id']]);
+                return $st->fetchAll(PDO::FETCH_COLUMN);
+            })());
+    }
+    return $out;
+}
+
+const V1_ROLE_SELECT = "SELECT r.id, r.nom, r.description, r.systeme, (SELECT COUNT(*) FROM t_utilisateurs u WHERE u.role = r.nom) AS nb_utilisateurs FROM t_roles r";
+
+function v1_role_charger(PDO $pdo, int $id): array
+{
+    $st = $pdo->prepare(V1_ROLE_SELECT . ' WHERE r.id = ?');
+    $st->execute([$id]);
+    return $st->fetch() ?: api_fail(404, 'introuvable', 'Rôle introuvable.');
+}
+
+/** Rôles attribuables ; avec role.gerer, chaque rôle porte aussi ses permissions. */
 route('GET', 'roles', function (array $c): void {
     require_any_permission_v1($c['user'], ['utilisateur.lister', 'utilisateur.gerer', 'role.gerer']);
-    $st = $c['pdo']->query("SELECT r.nom, r.description, r.systeme, (SELECT COUNT(*) FROM t_utilisateurs u WHERE u.role = r.nom) AS nb_utilisateurs
-        FROM t_roles r ORDER BY r.systeme DESC, r.nom");
-    api_data(array_map(fn($r) => ['nom' => $r['nom'], 'description' => $r['description'], 'systeme' => (bool) $r['systeme'],
-        'nb_utilisateurs' => (int) $r['nb_utilisateurs']], $st->fetchAll()));
+    $detail = has_permission($c['user'], 'role.gerer');
+    $rows = $c['pdo']->query(V1_ROLE_SELECT . ' ORDER BY r.systeme DESC, r.nom')->fetchAll();
+    api_data(array_map(fn($r) => v1_role_json($c['pdo'], $r, $detail), $rows));
+});
+
+/** Catalogue des permissions, regroupées, pour construire l'écran des rôles. */
+route('GET', 'permissions', function (array $c): void {
+    require_permission_v1($c['user'], 'role.gerer');
+    $groupes = [];
+    foreach ($c['pdo']->query("SELECT code, groupe, libelle FROM t_permissions ORDER BY ordre")->fetchAll() as $p) {
+        $groupes[$p['groupe']][] = ['code' => $p['code'], 'libelle' => $p['libelle']];
+    }
+    api_data(array_map(fn($g, $l) => ['groupe' => $g, 'permissions' => $l], array_keys($groupes), array_values($groupes)));
+});
+
+function v1_role_permissions_valides(PDO $pdo, array $b): array
+{
+    $liste = $b['permissions'] ?? null;
+    if (!is_array($liste) || !array_is_list($liste)) {
+        api_fail(422, 'champ_invalide', 'Le champ « permissions » doit être une liste de codes.', ['champ' => 'permissions']);
+    }
+    $liste = array_values(array_unique(array_map('strval', $liste)));
+    $connues = $pdo->query("SELECT code FROM t_permissions")->fetchAll(PDO::FETCH_COLUMN);
+    if ($inconnues = array_diff($liste, $connues)) {
+        api_fail(422, 'champ_invalide', 'Permission inconnue : ' . implode(', ', $inconnues), ['champ' => 'permissions']);
+    }
+    return $liste;
+}
+
+function v1_role_ecrire_permissions(PDO $pdo, int $id, array $codes): void
+{
+    $pdo->prepare("DELETE FROM t_roles_permissions WHERE role_id = ?")->execute([$id]);
+    $ins = $pdo->prepare("INSERT INTO t_roles_permissions (role_id, permission_code) VALUES (?, ?)");
+    foreach ($codes as $code) { $ins->execute([$id, $code]); }
+}
+
+route('POST', 'roles', function (array $c): void {
+    $pdo = $c['pdo']; $b = $c['body'];
+    require_permission_v1($c['user'], 'role.gerer');
+    $nom = api_str($b, 'nom', true, 50);
+    $desc = api_str($b, 'description', false, 500);
+    $codes = v1_role_permissions_valides($pdo, $b + ['permissions' => $b['permissions'] ?? []]);
+    $pdo->beginTransaction();
+    try {
+        $st = $pdo->prepare("INSERT INTO t_roles (nom, description) VALUES (?, ?) RETURNING id");
+        $st->execute([$nom, $desc]);
+        $id = (int) $st->fetchColumn();
+        v1_role_ecrire_permissions($pdo, $id, $codes);
+        $pdo->commit();
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        if ($e->getCode() === '23505') { api_fail(409, 'nom_existant', 'Un rôle porte déjà ce nom.'); }
+        throw $e;
+    }
+    api_data(v1_role_json($pdo, v1_role_charger($pdo, $id), true), [], 201);
+});
+
+route('PATCH', 'roles/{id}', function (array $c): void {
+    $pdo = $c['pdo']; $b = $c['body']; $id = $c['params']['id'];
+    require_permission_v1($c['user'], 'role.gerer');
+    $r = v1_role_charger($pdo, $id);
+    if ($r['systeme']) {
+        api_fail(403, 'role_systeme', 'Le rôle « ' . $r['nom'] . ' » est un rôle système : il n\'est pas modifiable.');
+    }
+    $nom = array_key_exists('nom', $b) ? api_str($b, 'nom', true, 50) : $r['nom'];
+    $desc = array_key_exists('description', $b) ? api_str($b, 'description', false, 500) : $r['description'];
+    $codes = array_key_exists('permissions', $b) ? v1_role_permissions_valides($pdo, $b) : null;
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("UPDATE t_roles SET nom = ?, description = ? WHERE id = ?")->execute([$nom, $desc, $id]);   // les comptes suivent (FK ON UPDATE CASCADE)
+        if ($codes !== null) { v1_role_ecrire_permissions($pdo, $id, $codes); }
+        // Les droits ont changé : les sessions des comptes concernés doivent repartir de zéro.
+        $pdo->prepare("UPDATE t_appareils SET revoque_at = NOW(), revoque_motif = 'role' WHERE revoque_at IS NULL AND user_id IN (SELECT id FROM t_utilisateurs WHERE role = ? AND id <> ?)")->execute([$nom, $c['user']['id']]);
+        $pdo->prepare("DELETE FROM t_sessions WHERE user_id IN (SELECT id FROM t_utilisateurs WHERE role = ? AND id <> ?)")->execute([$nom, $c['user']['id']]);
+        $pdo->commit();
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        if ($e->getCode() === '23505') { api_fail(409, 'nom_existant', 'Un rôle porte déjà ce nom.'); }
+        throw $e;
+    }
+    api_data(v1_role_json($pdo, v1_role_charger($pdo, $id), true));
+});
+
+route('DELETE', 'roles/{id}', function (array $c): void {
+    $pdo = $c['pdo']; $id = $c['params']['id'];
+    require_permission_v1($c['user'], 'role.gerer');
+    $r = v1_role_charger($pdo, $id);
+    if ($r['systeme']) {
+        api_fail(403, 'role_systeme', 'Un rôle système ne peut pas être supprimé.');
+    }
+    if ((int) $r['nb_utilisateurs'] > 0) {
+        api_fail(409, 'role_utilise', "Ce rôle est attribué à {$r['nb_utilisateurs']} utilisateur(s) : changez leur rôle d'abord.", ['nb_utilisateurs' => (int) $r['nb_utilisateurs']]);
+    }
+    $pdo->prepare("DELETE FROM t_roles WHERE id = ?")->execute([$id]);
+    api_data(['supprime' => true]);
+});
+
+// ---------------------------------------------------------------- Paramètres de l'application
+
+/** Clés exposées : tout sauf les valeurs internes ; les secrets ne sortent jamais (seul un indicateur « configuré »). */
+const V1_PARAM_SECRETS = ['smtp_password', 'sms_jeton', 'fcm_compte_service'];
+
+function v1_parametres_lisibles(PDO $pdo): array
+{
+    $p = get_parametres($pdo);
+    foreach (get_parametres_internes() as $k) { unset($p[$k]); }
+    foreach (V1_PARAM_SECRETS as $k) {
+        $p[$k . '_configure'] = trim((string) ($p[$k] ?? '')) !== '';
+        unset($p[$k]);
+    }
+    return $p;
+}
+
+route('GET', 'parametres', function (array $c): void {
+    require_permission_v1($c['user'], 'parametre.gerer');
+    api_data(v1_parametres_lisibles($c['pdo']));
+});
+
+/** Modification partielle : seules les clés envoyées changent. Secret : "" conserve, null efface. */
+route('PATCH', 'parametres', function (array $c): void {
+    $pdo = $c['pdo']; $b = $c['body'];
+    require_permission_v1($c['user'], 'parametre.gerer');
+    $connues = get_default_parametres();
+    foreach (get_parametres_internes() as $k) { unset($connues[$k]); }
+    $donnees = [];
+    foreach ($b as $cle => $val) {
+        if (!array_key_exists($cle, $connues)) {
+            api_fail(422, 'champ_invalide', "Paramètre inconnu : $cle", ['champ' => $cle]);
+        }
+        if (in_array($cle, V1_PARAM_SECRETS, true)) {
+            if ($val === '') { continue; }
+            $val = $val === null ? '' : $val;
+        }
+        if (is_bool($val)) { $val = $val ? '1' : '0'; }
+        if (!is_scalar($val)) {
+            api_fail(422, 'champ_invalide', "Valeur invalide pour $cle", ['champ' => $cle]);
+        }
+        $donnees[$cle] = (string) $val;
+    }
+    if (!$donnees) {
+        api_fail(422, 'aucun_champ', 'Aucun paramètre à modifier.');
+    }
+    save_parametres($pdo, $donnees, $c['user']['login']);
+    api_data(v1_parametres_lisibles($pdo));
 });
 
 function require_any_permission_v1(array $user, array $codes): void

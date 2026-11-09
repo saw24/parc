@@ -25,6 +25,8 @@ Code : `backend/api/v1/` · logique partagée : `backend/lib/` · tests : `backe
 `json_invalide`(400) · `token_manquant`/`token_invalide`/`token_expire`(401) · `refresh_invalide`/`refresh_expire`/`refresh_rejoue`(401) · `identifiants_invalides`(401) · `interdit`(403) · `mot_de_passe_incorrect`(403) · `introuvable`(404) · `route_inconnue`(404) · `methode_non_autorisee`(405) · `conflit`/`num_serie_existant`/`uuid_deja_utilise`(409) · `champ_requis`/`champ_invalide`/`donnees_invalides`/`mot_de_passe_faible`/`curseur_invalide`(422) · `app_obsolete`(426) · `trop_de_tentatives`(429, en-tête `Retry-After`) · `erreur_interne`(500).
 
 ## Session
+Le **site web** appelle aussi la v1 : les en-têtes `X-Session-Token` + `X-User-Id` de sa session sont acceptés à la place du jeton Bearer (mêmes permissions). Les routes `auth/*` et `appareils` restent propres à l'application mobile.
+
 1. `POST auth/login` `{login, password, appareil: {nom, plateforme: "android", version_app}}` → `{utilisateur, access_token, refresh_token, expires_in: 3600, appareil_id}`.
 2. Sur `401 token_expire` : `POST auth/refresh` `{refresh_token}` → nouveaux `access_token` **et** `refresh_token` (le précédent n'est plus valable : toujours stocker le nouveau, de façon atomique). Réponse perdue ? Rejouer le même refresh dans les 60 s réémet des jetons.
 3. `401 refresh_rejoue` : un ancien refresh a été présenté (vol possible) → la session est révoquée, reconnexion complète.
@@ -47,7 +49,11 @@ Code : `backend/api/v1/` · logique partagée : `backend/lib/` · tests : `backe
 | `POST utilisateurs` | `utilisateur.gerer` | `{nom*, login*, mot_de_passe* (≥ 10), role*, email, telephone, service_id, actif, connexion_autorisee}` ; `409 login_existant` ; le rôle Administrateur n'est attribuable que par un administrateur |
 | `PATCH utilisateurs/{id}` | `utilisateur.gerer` | modification partielle ; un renommage suit dans les pannes/matériel ; rôle, mot de passe ou désactivation coupent toutes les sessions ; refus : soi-même (`auto_modification`), dernier administrateur (`dernier_admin`), compte « Service IT » (`compte_technique`) |
 | `DELETE utilisateurs/{id}` | `utilisateur.gerer` | mêmes garde-fous ; pannes et historique conservés |
-| `GET roles` | `utilisateur.lister`, `utilisateur.gerer` ou `role.gerer` | rôles attribuables (la gestion des rôles reste sur le site) |
+| `GET roles` | `utilisateur.lister`, `utilisateur.gerer` ou `role.gerer` | rôles attribuables ; avec `role.gerer`, chacun porte ses `permissions[]` |
+| `GET permissions` | `role.gerer` | catalogue groupé `[{groupe, permissions:[{code, libelle}]}]` |
+| `POST roles` · `PATCH roles/{id}` | `role.gerer` | `{nom*, description, permissions[]}` ; rôle système intouchable (`403 role_systeme`) ; modifier un rôle coupe les sessions des comptes concernés (sauf la sienne) |
+| `DELETE roles/{id}` | `role.gerer` | `409 role_utilise` s'il est attribué |
+| `GET parametres` · `PATCH parametres` | `parametre.gerer` | PATCH partiel (SMTP, seuils, `sms_*`, `fcm_*`…) ; les secrets (`smtp_password`, `sms_jeton`, `fcm_compte_service`) ne sortent jamais, seulement `<clé>_configure` ; secret `""` = conserver, `null` = effacer |
 | `GET services` | `referentiel.voir` | avec `nb_utilisateurs`, `nb_materiels` |
 | `POST services` · `PATCH services/{id}` | `referentiel.gerer` | `{nom*, description}` ; un renommage est répercuté sur pannes et matériel ; `409 nom_existant` |
 | `DELETE services/{id}` | `referentiel.supprimer` | `409 service_utilise` tant que des utilisateurs ou du matériel y sont rattachés |

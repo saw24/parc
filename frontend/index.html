@@ -64,6 +64,12 @@
                     </a>
                 </li>
                 <li>
+                    <a href="#roles" data-title="Rôles et permissions">
+                        <i class="fas fa-user-shield"></i>
+                        Rôles
+                    </a>
+                </li>
+                <li>
                     <a href="#parametres" data-title="Paramètres">
                         <i class="fas fa-cogs"></i>
                         Paramètres
@@ -702,6 +708,19 @@
                 </div>
             </main>
             <!-- =================== PAGE: PARAMÈTRES (Admin uniquement) =================== -->
+            <!-- =================== PAGE: RÔLES ET PERMISSIONS =================== -->
+            <main id="roles-page" class="page-content">
+                <div class="controls-bar">
+                    <button class="btn btn-primary" id="role-nouveau"><i class="fas fa-plus"></i> Nouveau rôle</button>
+                    <span class="field-hint" id="roles-statut"></span>
+                </div>
+                <div class="table-container">
+                    <table id="roles-table">
+                        <thead><tr><th>Rôle</th><th>Description</th><th>Utilisateurs</th><th>Permissions</th><th>Actions</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </main>
             <main id="parametres-page" class="page-content">
                 <div id="parametres-acces-refuse" class="access-denied" style="display:none;">
                     <i class="fas fa-lock"></i>
@@ -861,6 +880,33 @@
                     <div class="parametres-actions">
                         <button type="submit" class="btn btn-primary">Enregistrer</button>
                         <span class="field-hint" id="parametres-save-status"></span>
+                    </div>
+                </form>
+                <form id="parametres-notif-form">
+                    <div class="dashboard-analytics">
+                        <div class="analytics-row">
+                            <div class="analytics-card">
+                                <h3><i class="fas fa-sms"></i> Passerelle SMS</h3>
+                                <div class="form-group"><label><input type="checkbox" id="sms_actif"> Envoyer des SMS (pannes)</label></div>
+                                <div class="form-group"><label for="sms_url">URL de la passerelle</label><input type="url" id="sms_url" placeholder="https://…"></div>
+                                <div class="form-group"><label for="sms_jeton">Jeton d'accès</label><input type="password" id="sms_jeton" autocomplete="new-password">
+                                    <div class="field-hint" id="sms_jeton_hint"></div></div>
+                                <div class="form-group"><label for="sms_expediteur">Expéditeur</label><input type="text" id="sms_expediteur" maxlength="20"></div>
+                                <div class="form-group"><label for="sms_corps">Modèle de requête (JSON)</label><textarea id="sms_corps" rows="3"></textarea>
+                                    <div class="field-hint">Variables : {to}, {from}, {message}.</div></div>
+                            </div>
+                            <div class="analytics-card">
+                                <h3><i class="fas fa-bell"></i> Notifications push (FCM)</h3>
+                                <div class="form-group"><label><input type="checkbox" id="fcm_actif"> Activer les notifications push</label></div>
+                                <div class="form-group"><label for="fcm_projet">Identifiant du projet Firebase</label><input type="text" id="fcm_projet"></div>
+                                <div class="form-group"><label for="fcm_compte_service">Compte de service (JSON)</label><textarea id="fcm_compte_service" rows="4" autocomplete="off"></textarea>
+                                    <div class="field-hint" id="fcm_compte_service_hint"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="parametres-actions">
+                        <button type="submit" class="btn btn-primary">Enregistrer SMS et push</button>
+                        <span class="field-hint" id="parametres-notif-status"></span>
                     </div>
                 </form>
             </main>
@@ -1033,9 +1079,27 @@
                 </div>
             </div>
         </div>
+        <div id="role-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header"><h2 id="role-modal-titre">Rôle</h2><button class="close-button" id="role-fermer">&times;</button></div>
+                <div class="modal-body">
+                    <form id="role-form">
+                        <div class="form-group"><label for="role-nom">Nom du rôle</label><input type="text" id="role-nom" maxlength="50" required></div>
+                        <div class="form-group"><label for="role-description">Description</label><input type="text" id="role-description" maxlength="500"></div>
+                        <div id="role-permissions"></div>
+                        <div class="field-hint" id="role-erreur" style="color:var(--color-danger,#dc2626)"></div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="role-annuler">Annuler</button>
+                    <button class="btn btn-primary" id="role-enregistrer">Enregistrer</button>
+                </div>
+            </div>
+        </div>
         <!-- jQuery via CDN -->
         <script src="assets/vendor/jquery/jquery-3.7.1.min.js"></script>
         <!-- Script personnalisé -->
         <script src="assets/js/script.js"></script>
+        <script src="assets/js/roles.js"></script>
     </body>
 </html>

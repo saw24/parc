@@ -52,6 +52,7 @@ function nettoyer(PDO $pdo, array $comptes, array $rolesTest): void {
     $pdo->exec("DELETE FROM t_services WHERE nom LIKE 'ZZ_V1_%'");
     $in = implode(',', array_fill(0, count($comptes), '?'));
     $pdo->prepare("DELETE FROM t_utilisateurs WHERE login IN ($in)")->execute(array_map(fn($c) => $c[0], array_values($comptes)));
+    $pdo->exec("DELETE FROM t_roles WHERE nom LIKE 'zz_v1_nr%'");
     $pdo->prepare("DELETE FROM t_roles WHERE nom IN (" . implode(',', array_fill(0, count($rolesTest), '?')) . ")")->execute(array_keys($rolesTest));
 }
 nettoyer($pdo, $comptes, $rolesTest);
@@ -359,6 +360,49 @@ try {
     check('suppression d\'un utilisateur', api('DELETE', "utilisateurs/$nuid", null, $A('gest'))[0] === 200 && api('GET', "utilisateurs/$nuid", null, $A('gest'))[0] === 404);
     check('suppression du service vide', api('PATCH', "services/$nsid", ['nom' => 'ZZ_V1_NEW'], $A('gest'))[0] === 200
         && ($pdo->exec("DELETE FROM t_materiel WHERE num_serie = 'ZZ_V1_REN'") || true) && api('DELETE', "services/$nsid", null, $A('gest'))[0] === 200);
+
+
+    echo "Rôles, permissions et paramètres\n";
+    check('gestionnaire sans role.gerer : pas de permissions dans la liste des rôles', ($r = api('GET', 'roles', null, $A('gest')))[0] === 200 && !isset($r[1]['data'][0]['permissions']));
+    check('liste des rôles avec permissions (admin)', ($r = api('GET', 'roles', null, $A('admin')))[0] === 200 && isset($r[1]['data'][0]['permissions']));
+    check('agent : catalogue refusé', api('GET', 'permissions', null, $A('agent'))[0] === 403);
+    $r = api('GET', 'permissions', null, $A('admin'));
+    check('catalogue groupé', $r[0] === 200 && in_array('Pannes', array_column($r[1]['data'], 'groupe'), true));
+    $r = api('POST', 'roles', ['nom' => 'zz_v1_nr1', 'description' => 'essai', 'permissions' => ['tache.declarer', 'tache.voir_siennes']], $A('admin'));
+    $rid = $r[1]['data']['id'] ?? 0;
+    check('création d\'un rôle', $r[0] === 201 && $r[1]['data']['permissions'] === ['tache.declarer', 'tache.voir_siennes']);
+    check('rôle en double → 409', api('POST', 'roles', ['nom' => 'zz_v1_nr1', 'permissions' => []], $A('admin'))[0] === 409);
+    check('permission inconnue → 422', api('POST', 'roles', ['nom' => 'zz_v1_nr2', 'permissions' => ['inexistante']], $A('admin'))[0] === 422);
+    check('gestionnaire sans role.gerer : 403', api('POST', 'roles', ['nom' => 'zz_v1_nr3', 'permissions' => []], $A('gest'))[0] === 403);
+    $r = api('PATCH', "roles/$rid", ['permissions' => ['tache.declarer', 'materiel.voir_siens']], $A('admin'));
+    check('modification des permissions', $r[0] === 200 && $r[1]['data']['permissions'] === ['tache.declarer', 'materiel.voir_siens']);
+    $adminRole = (int) $pdo->query("SELECT id FROM t_roles WHERE systeme LIMIT 1")->fetchColumn();
+    check('rôle système non modifiable ni supprimable', api('PATCH', "roles/$adminRole", ['description' => 'x'], $A('admin'))[0] === 403 && api('DELETE', "roles/$adminRole", null, $A('admin'))[0] === 403);
+    $u = api('POST', 'utilisateurs', ['nom' => 'ZZ NR', 'login' => 'zz_v1_new7', 'mot_de_passe' => 'MotDePasse-1234', 'role' => 'zz_v1_nr1'], $A('admin'));
+    check('rôle utilisé : suppression refusée (409)', api('DELETE', "roles/$rid", null, $A('admin'))[0] === 409);
+    $lg = api('POST', 'auth/login', ['login' => 'zz_v1_new7', 'password' => 'MotDePasse-1234']);
+    api('PATCH', "roles/$rid", ['nom' => 'zz_v1_nr1b'], $A('admin'));
+    check('renommage : le compte suit, sessions coupées', api('GET', 'me', null, $lg[1]['data']['access_token'])[0] === 401
+        && api('GET', "utilisateurs/{$u[1]['data']['id']}", null, $A('admin'))[1]['data']['role'] === 'zz_v1_nr1b');
+    api('DELETE', "utilisateurs/{$u[1]['data']['id']}", null, $A('admin'));
+    check('suppression du rôle', api('DELETE', "roles/$rid", null, $A('admin'))[0] === 200);
+
+    check('paramètres : gestionnaire refusé', api('GET', 'parametres', null, $A('gest'))[0] === 403);
+    $r = api('PATCH', 'parametres', ['sms_actif' => true, 'sms_url' => 'http://sms.example/api', 'sms_jeton' => 'secret-123'], $A('admin'));
+    check('paramètres : SMS enregistrés, jeton jamais renvoyé', $r[0] === 200 && $r[1]['data']['sms_actif'] === '1' && $r[1]['data']['sms_jeton_configure'] === true
+        && !isset($r[1]['data']['sms_jeton']) && !str_contains($r[3], 'secret-123'));
+    check('jeton vide = conservé', api('PATCH', 'parametres', ['sms_jeton' => '', 'sms_expediteur' => 'ParcIT'], $A('admin'))[1]['data']['sms_jeton_configure'] === true);
+    check('paramètre inconnu → 422', api('PATCH', 'parametres', ['nimporte' => 'x'], $A('admin'))[0] === 422);
+    $r = api('PATCH', 'parametres', ['sms_actif' => false, 'sms_url' => '', 'sms_jeton' => null], $A('admin'));
+    check('paramètres remis à zéro', $r[0] === 200 && $r[1]['data']['sms_jeton_configure'] === false);
+
+    echo "Pont avec la session du site web\n";
+    $web = bin2hex(random_bytes(32));
+    $pdo->prepare("INSERT INTO t_sessions (user_id, session_token, expiry_time) VALUES (?, ?, NOW() + interval '1 hour')")->execute([$ids['admin'], hash('sha256', $web)]);
+    $r = api('GET', 'roles', null, null, ['X-Session-Token' => $web, 'X-User-Id' => $ids['admin']]);
+    check('session web acceptée par la v1', $r[0] === 200 && isset($r[1]['data'][0]['permissions']));
+    check('session web : mauvais utilisateur → 401', api('GET', 'roles', null, null, ['X-Session-Token' => $web, 'X-User-Id' => $ids['gest']])[0] === 401);
+    check('session web inconnue → 401', api('GET', 'roles', null, null, ['X-Session-Token' => 'x', 'X-User-Id' => $ids['admin']])[0] === 401);
 
 
 } finally {

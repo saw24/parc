@@ -163,3 +163,20 @@ function device_revoquer(PDO $pdo, int $appareilId, int $userId, string $motif =
     $st->execute([$motif, $appareilId, $userId]);
     return $st->rowCount() > 0;
 }
+
+/** Authentifie une session du site web (t_sessions) ; mêmes règles que middleware/auth.php. */
+function device_authentifier_session_web(PDO $pdo, string $jeton, int $userId): array
+{
+    $st = $pdo->prepare("SELECT u.id, u.nom, u.login, u.role, u.email, u.telephone, u.service_id
+        FROM t_sessions s JOIN t_utilisateurs u ON u.id = s.user_id
+        WHERE s.session_token = ? AND s.user_id = ? AND s.expiry_time > NOW() AND u.actif AND u.connexion_autorisee");
+    $st->execute([hash_session_token($jeton), $userId]);
+    $r = $st->fetch();
+    if (!$r) {
+        api_fail(401, 'token_invalide', 'Session invalide : reconnectez-vous.');
+    }
+    $r['id'] = (int) $r['id'];
+    $r['service_id'] = $r['service_id'] !== null ? (int) $r['service_id'] : null;
+    $r['permissions'] = charger_permissions($pdo, $r['role']);
+    return $r;
+}

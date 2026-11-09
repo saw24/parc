@@ -90,10 +90,14 @@ $contexte = ['pdo' => $pdo, 'user' => null, 'appareil' => null, 'params' => arra
 
 if ($auth) {
     $entete = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-    if (!preg_match('/^Bearer\s+([0-9a-f]{64})$/i', $entete, $m)) {
+    if (preg_match('/^Bearer\s+([0-9a-f]{64})$/i', $entete, $m)) {
+        [$contexte['user'], $contexte['appareil']] = device_authentifier($pdo, $m[1]);
+    } elseif (($_SERVER['HTTP_X_SESSION_TOKEN'] ?? '') !== '') {
+        // Le site web (session par en-têtes X-Session-Token / X-User-Id, sans cookie donc sans CSRF) appelle les mêmes routes.
+        $contexte['user'] = device_authentifier_session_web($pdo, (string) $_SERVER['HTTP_X_SESSION_TOKEN'], (int) ($_SERVER['HTTP_X_USER_ID'] ?? 0));
+    } else {
         api_fail(401, 'token_manquant', 'Authentification requise (en-tête Authorization: Bearer).');
     }
-    [$contexte['user'], $contexte['appareil']] = device_authentifier($pdo, $m[1]);
 }
 if (in_array($methode, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
     $contexte['body'] = api_body();
