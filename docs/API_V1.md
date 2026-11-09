@@ -42,7 +42,17 @@ Code : `backend/api/v1/` · logique partagée : `backend/lib/` · tests : `backe
 | `GET notifications` | — | boîte de réception (50 max, plus récentes d'abord) : `apres_id=N`, `non_lues=1` ; `meta.non_lues` = compteur. Chaque entrée : `type`, `titre`, `message`, `tache{id,reference,statut}`, `peut_prendre` (afficher « Je prends » : appeler ensuite `POST taches/{id}/prendre`), `lue` |
 | `POST notifications/lues` `{ids:[…]}` ou `{toutes:true}` | — | marque comme lues (uniquement les siennes) |
 | `GET referentiels` | — | services, types de matériel, priorités, statuts, délais SLA |
-| `GET utilisateurs` | `utilisateur.lister`, `materiel.creer` ou `materiel.modifier` | agents actifs (id, nom, service) pour affecter un matériel |
+| `GET utilisateurs` | `utilisateur.lister`, `materiel.creer` ou `materiel.modifier` | agents actifs (id, nom, service) pour affecter un matériel ; `?detail=1` (exige `utilisateur.lister`/`gerer`) ajoute login, rôle, état ; `inclure_inactifs=1`, `q=` |
+| `GET utilisateurs/{id}` | `utilisateur.lister` ou `gerer` | |
+| `POST utilisateurs` | `utilisateur.gerer` | `{nom*, login*, mot_de_passe* (≥ 10), role*, email, telephone, service_id, actif, connexion_autorisee}` ; `409 login_existant` ; le rôle Administrateur n'est attribuable que par un administrateur |
+| `PATCH utilisateurs/{id}` | `utilisateur.gerer` | modification partielle ; un renommage suit dans les pannes/matériel ; rôle, mot de passe ou désactivation coupent toutes les sessions ; refus : soi-même (`auto_modification`), dernier administrateur (`dernier_admin`), compte « Service IT » (`compte_technique`) |
+| `DELETE utilisateurs/{id}` | `utilisateur.gerer` | mêmes garde-fous ; pannes et historique conservés |
+| `GET roles` | `utilisateur.lister`, `utilisateur.gerer` ou `role.gerer` | rôles attribuables (la gestion des rôles reste sur le site) |
+| `GET services` | `referentiel.voir` | avec `nb_utilisateurs`, `nb_materiels` |
+| `POST services` · `PATCH services/{id}` | `referentiel.gerer` | `{nom*, description}` ; un renommage est répercuté sur pannes et matériel ; `409 nom_existant` |
+| `DELETE services/{id}` | `referentiel.supprimer` | `409 service_utilise` tant que des utilisateurs ou du matériel y sont rattachés |
+| `PATCH taches/{id}` | `tache.modifier_toutes` / `modifier_siennes`, ou le déclarant tant que la panne est « À faire » et non prise | partiel : `titre, description, priorite, service_id, materiel_id` ; `motif_cause`, `date_limite` réservés à l'équipe (403) ; `version` optionnelle (`409 conflit`) ; changer la priorité recalcule les échéances SLA |
+| `DELETE taches/{id}` | `tache.supprimer` | |
 | `GET agents` | `tache.affecter` | agents IT + file « Service IT », avec leur charge |
 | `GET accueil` | accès aux pannes | compteurs : mes pannes ouvertes, mes assignées, file, retards SLA, relances dues |
 | `GET taches` | `tache.voir_toutes` ou `tache.voir_siennes` | filtres : `statut=A,B` · `ouvertes=1` · `assigne=moi\|file\|<id>` · `declarant=moi` · `materiel_id` · `q` · `updated_since` · `ids_only=1` |
@@ -59,7 +69,7 @@ Code : `backend/api/v1/` · logique partagée : `backend/lib/` · tests : `backe
 | `PATCH materiel/{id}` | `materiel.modifier` | modification partielle ; une réaffectation clôture l'ancienne ligne d'historique |
 | `DELETE materiel/{id}` | `materiel.supprimer` | |
 
-Chaque panne porte `actions` (`prendre`, `affecter`, `changer_statut`, `rouvrir`, `annuler`, `commenter`) : booléens calculés pour l'utilisateur courant, à utiliser pour afficher ou masquer les boutons. Le serveur revérifie toujours les droits.
+Chaque panne porte `actions` (`prendre`, `affecter`, `changer_statut`, `rouvrir`, `annuler`, `commenter`, `modifier`, `supprimer`) : booléens calculés pour l'utilisateur courant, à utiliser pour afficher ou masquer les boutons. Le serveur revérifie toujours les droits.
 
 ## Hors ligne
 - **Création** : générer un UUID v4 (`client_uuid`) à la saisie, mettre l'envoi en file (WorkManager) et le rejouer jusqu'à obtenir `200`/`201` : jamais de doublon. Un `4xx` (hors 401/429) est définitif : le signaler à l'utilisateur au lieu de réessayer.

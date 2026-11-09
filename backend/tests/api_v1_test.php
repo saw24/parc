@@ -35,16 +35,20 @@ $rolesTest = [
         'materiel.voir_tous', 'materiel.creer', 'materiel.modifier', 'referentiel.voir'],
     'zz_v1_agent' => ['tache.declarer', 'tache.voir_siennes', 'materiel.voir_siens'],
     'zz_v1_vide' => [],
+    'zz_v1_gest' => ['tache.voir_toutes', 'tache.modifier_toutes', 'tache.supprimer', 'utilisateur.lister', 'utilisateur.gerer',
+        'referentiel.voir', 'referentiel.gerer', 'referentiel.supprimer'],
 ];
 $comptes = [ // clé => [login, rôle, nom]
     'admin' => ['zz_v1_admin', 'Administrateur'], 'tech' => ['zz_v1_tech', 'zz_v1_tech'], 'tech2' => ['zz_v1_tech2', 'zz_v1_tech'],
     'agent' => ['zz_v1_agent', 'zz_v1_agent'], 'agent2' => ['zz_v1_agent2', 'zz_v1_agent'], 'vide' => ['zz_v1_vide', 'zz_v1_vide'],
+    'gest' => ['zz_v1_gest', 'zz_v1_gest'],
 ];
 
 function nettoyer(PDO $pdo, array $comptes, array $rolesTest): void {
     $pdo->exec("DELETE FROM t_taches WHERE titre LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_login_attempts WHERE login LIKE 'zz_v1_%'");
+    $pdo->exec("DELETE FROM t_utilisateurs WHERE login LIKE 'zz_v1_new%'");
     $pdo->exec("DELETE FROM t_services WHERE nom LIKE 'ZZ_V1_%'");
     $in = implode(',', array_fill(0, count($comptes), '?'));
     $pdo->prepare("DELETE FROM t_utilisateurs WHERE login IN ($in)")->execute(array_map(fn($c) => $c[0], array_values($comptes)));
@@ -86,7 +90,7 @@ try {
     $r = api('POST', 'auth/login', ['login' => 'service_it', 'password' => '!compte-sans-connexion']);
     check('compte « Service IT » : connexion impossible', $r[0] === 401);
     $tok = [];
-    foreach (['admin', 'tech', 'tech2', 'agent', 'agent2', 'vide'] as $k) {
+    foreach (['admin', 'tech', 'tech2', 'agent', 'agent2', 'vide', 'gest'] as $k) {
         $r = api('POST', 'auth/login', ['login' => $comptes[$k][0], 'password' => $pwd, 'appareil' => ['nom' => "Test $k", 'plateforme' => 'android', 'version_app' => '1.0.0']]);
         $tok[$k] = $r[1]['data'] ?? [];
         if ($k === 'tech') {
@@ -289,6 +293,73 @@ try {
     check('technicien : liste des agents actifs', $r[0] === 200 && in_array('ZZ zz_v1_agent', array_column($r[1]['data'] ?? [], 'nom'), true)
         && !in_array('Service IT', array_column($r[1]['data'] ?? [], 'nom'), true));
     check('agent simple : refusé', api('GET', 'utilisateurs', null, $A('agent'))[0] === 403);
+
+    echo "Modification et suppression d'une panne\n";
+    $r = api('POST', 'taches', ['titre' => 'ZZ_V1_Edit', 'service_id' => $svc, 'priorite' => 'Basse'], $A('agent'));
+    $pid = $r[1]['data']['id'] ?? 0;
+    check('déclaration pour test', $r[0] === 201 && $pid > 0);
+    check('actions : le déclarant peut modifier', in_array('modifier', array_keys(array_filter($r[1]['data']['actions'] ?? [])), true) || ($r[1]['data']['actions']['modifier'] ?? false) === true);
+    $r = api('PATCH', "taches/$pid", ['titre' => 'ZZ_V1_Edit 2', 'priorite' => 'Haute'], $A('agent'));
+    check('déclarant : modifie titre et priorité', $r[0] === 200 && $r[1]['data']['titre'] === 'ZZ_V1_Edit 2' && $r[1]['data']['priorite'] === 'Haute');
+    check('déclarant : date_limite interdite (403)', api('PATCH', "taches/$pid", ['date_limite' => '2030-01-01'], $A('agent'))[0] === 403);
+    check('aucun champ → 422', api('PATCH', "taches/$pid", [], $A('agent'))[0] === 422);
+    check('priorité invalide → 422', api('PATCH', "taches/$pid", ['priorite' => 'Folle'], $A('agent'))[0] === 422);
+    check('autre agent : panne invisible (404)', api('PATCH', "taches/$pid", ['titre' => 'X'], $A('agent2'))[0] === 404);
+    check('version périmée → 409', api('PATCH', "taches/$pid", ['titre' => 'ZZ_V1_Edit 3', 'version' => 1], $A('agent'))[0] === 409);
+    $r = api('PATCH', "taches/$pid", ['date_limite' => '2030-01-01', 'description' => 'détail'], $A('gest'));
+    check('gestionnaire : modifie date limite et description', $r[0] === 200 && $r[1]['data']['description'] === 'détail');
+    check('agent sans permission supprimer : 403', api('DELETE', "taches/$pid", null, $A('agent'))[0] === 403);
+    $r = api('DELETE', "taches/$pid", null, $A('gest'));
+    check('gestionnaire : supprime la panne', $r[0] === 200 && api('GET', "taches/$pid", null, $A('gest'))[0] === 404);
+
+    echo "Gestion des services\n";
+    check('agent : liste des services refusée', api('GET', 'services', null, $A('agent'))[0] === 403);
+    $r = api('POST', 'services', ['nom' => 'ZZ_V1_NEW', 'description' => 'essai'], $A('gest'));
+    $nsid = $r[1]['data']['id'] ?? 0;
+    check('création d\'un service', $r[0] === 201 && $nsid > 0);
+    check('doublon → 409', api('POST', 'services', ['nom' => 'ZZ_V1_NEW'], $A('gest'))[0] === 409);
+    check('nom vide → 422', api('POST', 'services', ['nom' => ''], $A('gest'))[0] === 422);
+    check('technicien sans referentiel.gerer : 403', api('POST', 'services', ['nom' => 'ZZ_V1_X'], $A('tech'))[0] === 403);
+    $r = api('POST', 'utilisateurs', ['nom' => 'ZZ New', 'login' => 'zz_v1_new1', 'mot_de_passe' => 'MotDePasse-1234', 'role' => 'zz_v1_agent', 'service_id' => $nsid], $A('gest'));
+    $nuid = $r[1]['data']['id'] ?? 0;
+    check('création d\'un utilisateur rattaché au service' . ($r[0] === 201 ? '' : ' ' . $r[3]), $r[0] === 201 && ($r[1]['data']['service']['id'] ?? 0) === $nsid);
+    $pdo->prepare("INSERT INTO t_materiel (type, statut, service_affecte, num_serie) VALUES ('PC', 'En service', 'ZZ_V1_NEW', 'ZZ_V1_REN')")->execute();
+    $r = api('PATCH', "services/$nsid", ['nom' => 'ZZ_V1_RENAMED'], $A('gest'));
+    $serv = $pdo->query("SELECT service_affecte FROM t_materiel WHERE num_serie = 'ZZ_V1_REN'")->fetchColumn();
+    check('renommage répercuté sur le matériel', $r[0] === 200 && $serv === 'ZZ_V1_RENAMED' && $r[1]['data']['nb_materiels'] === 1 && $r[1]['data']['nb_utilisateurs'] === 1);
+    check('service utilisé : suppression refusée (409)', api('DELETE', "services/$nsid", null, $A('gest'))[0] === 409);
+
+    echo "Gestion des utilisateurs\n";
+    check('agent : refus de la liste détaillée', api('GET', 'utilisateurs?detail=1', null, $A('agent'))[0] === 403);
+    $r = api('GET', 'utilisateurs?detail=1&q=zz_v1_new', null, $A('gest'));
+    check('liste détaillée filtrée', $r[0] === 200 && count($r[1]['data']) === 1 && isset($r[1]['data'][0]['role']) && !isset($r[1]['data'][0]['mot_de_passe']));
+    check('login en double → 409', api('POST', 'utilisateurs', ['nom' => 'ZZ Dup', 'login' => 'zz_v1_new1', 'mot_de_passe' => 'MotDePasse-1234', 'role' => 'zz_v1_agent'], $A('gest'))[0] === 409);
+    check('mot de passe trop court → 422', api('POST', 'utilisateurs', ['nom' => 'ZZ Court', 'login' => 'zz_v1_new2', 'mot_de_passe' => 'court', 'role' => 'zz_v1_agent'], $A('gest'))[0] === 422);
+    check('rôle inconnu → 422', api('POST', 'utilisateurs', ['nom' => 'ZZ R', 'login' => 'zz_v1_new3', 'mot_de_passe' => 'MotDePasse-1234', 'role' => 'inexistant'], $A('gest'))[0] === 422);
+    check('attribuer Administrateur sans l\'être → 403', api('POST', 'utilisateurs', ['nom' => 'ZZ A', 'login' => 'zz_v1_new4', 'mot_de_passe' => 'MotDePasse-1234', 'role' => 'Administrateur'], $A('gest'))[0] === 403);
+    check('technicien sans utilisateur.gerer : 403', api('POST', 'utilisateurs', ['nom' => 'ZZ T', 'login' => 'zz_v1_new5', 'mot_de_passe' => 'MotDePasse-1234', 'role' => 'zz_v1_agent'], $A('tech'))[0] === 403);
+    $r = api('GET', 'roles', null, $A('gest'));
+    check('liste des rôles', $r[0] === 200 && in_array('Administrateur', array_column($r[1]['data'], 'nom'), true));
+    $rl = api('POST', 'auth/login', ['login' => 'zz_v1_new1', 'password' => 'MotDePasse-1234', 'appareil' => ['nom' => 'N', 'plateforme' => 'android']]);
+    check('le nouvel utilisateur se connecte', $rl[0] === 200);
+    $r = api('PATCH', "utilisateurs/$nuid", ['nom' => 'ZZ New Renamed', 'telephone' => '+227 11 22 33 44', 'role' => 'zz_v1_tech'], $A('gest'));
+    check('modification (nom, téléphone, rôle)', $r[0] === 200 && $r[1]['data']['nom'] === 'ZZ New Renamed' && $r[1]['data']['role'] === 'zz_v1_tech');
+    check('changement de rôle : sessions mobiles coupées', api('GET', 'me', null, $rl[1]['data']['access_token'] ?? 'x')[0] === 401);
+    $r = api('PATCH', "utilisateurs/$nuid", ['actif' => false], $A('gest'));
+    check('désactivation', $r[0] === 200 && $r[1]['data']['actif'] === false);
+    check('compte désactivé : connexion refusée', api('POST', 'auth/login', ['login' => 'zz_v1_new1', 'password' => 'MotDePasse-1234'])[0] === 401);
+    $r = api('PATCH', "utilisateurs/$nuid", ['actif' => true, 'mot_de_passe' => 'Autre-Passe-5678'], $A('gest'));
+    check('réactivation + nouveau mot de passe', $r[0] === 200 && api('POST', 'auth/login', ['login' => 'zz_v1_new1', 'password' => 'Autre-Passe-5678'])[0] === 200);
+    check('auto-désactivation interdite', api('PATCH', "utilisateurs/{$ids['gest']}", ['actif' => false], $A('gest'))[0] === 422);
+    check('auto-suppression interdite', api('DELETE', "utilisateurs/{$ids['gest']}", null, $A('gest'))[0] === 422);
+    $fc = (int) $pdo->query("SELECT id FROM t_utilisateurs WHERE est_file_commune LIMIT 1")->fetchColumn();
+    check('compte « Service IT » protégé', api('PATCH', "utilisateurs/$fc", ['nom' => 'Autre'], $A('gest'))[0] === 403 && api('DELETE', "utilisateurs/$fc", null, $A('gest'))[0] === 403);
+    check('admin : peut attribuer le rôle Administrateur', api('PATCH', "utilisateurs/$nuid", ['role' => 'Administrateur'], $A('admin'))[0] === 200);
+    api('PATCH', "utilisateurs/$nuid", ['role' => 'zz_v1_agent'], $A('admin'));
+    check('suppression d\'un utilisateur', api('DELETE', "utilisateurs/$nuid", null, $A('gest'))[0] === 200 && api('GET', "utilisateurs/$nuid", null, $A('gest'))[0] === 404);
+    check('suppression du service vide', api('PATCH', "services/$nsid", ['nom' => 'ZZ_V1_NEW'], $A('gest'))[0] === 200
+        && ($pdo->exec("DELETE FROM t_materiel WHERE num_serie = 'ZZ_V1_REN'") || true) && api('DELETE', "services/$nsid", null, $A('gest'))[0] === 200);
+
 
 } finally {
     nettoyer($pdo, $comptes, $rolesTest);

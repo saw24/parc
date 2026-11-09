@@ -78,6 +78,24 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         return tache(t.id)
     }
 
+    /** Modification partielle d'une panne (seuls les champs fournis changent) ; la version protège contre les écrasements. */
+    suspend fun modifierPanne(t: Tache, champs: JsonObject): Tache {
+        api.patch("taches/${t.id}", JsonObject(champs + ("version" to JsonPrimitive(t.version))))
+        return tache(t.id)
+    }
+
+    suspend fun supprimerPanne(id: Int) { api.delete("taches/$id") }
+
+    // ------------------------------------------------------------------ Administration
+    suspend fun utilisateursAdmin(q: String): List<UtilisateurAdmin> =
+        api.get("utilisateurs", buildMap { put("detail", "1"); put("inclure_inactifs", "1"); if (q.isNotBlank()) put("q", q.trim()) }).data()
+    suspend fun roles(): List<Role> = api.get("roles").data()
+    suspend fun enregistrerUtilisateur(id: Int?, champs: JsonObject) { if (id == null) api.post("utilisateurs", champs) else api.patch("utilisateurs/$id", champs) }
+    suspend fun supprimerUtilisateur(id: Int) { api.delete("utilisateurs/$id") }
+    suspend fun servicesAdmin(): List<ServiceAdmin> = api.get("services").data()
+    suspend fun enregistrerService(id: Int?, champs: JsonObject) { if (id == null) api.post("services", champs) else api.patch("services/$id", champs) }
+    suspend fun supprimerService(id: Int) { api.delete("services/$id") }
+
     // ------------------------------------------------------------------ Interventions (agents IT)
     private suspend inline fun <reified T> pages(path: String, base: Map<String, String>, max: Int = 300): List<T> {
         val out = mutableListOf<T>()

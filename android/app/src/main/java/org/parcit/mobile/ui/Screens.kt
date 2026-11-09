@@ -66,6 +66,10 @@ fun Root(vm: AppViewModel) {
                 is Ecran.MaterielDetail -> { BackHandler { vm.retour() }; EcranFiche(vm) }
                 is Ecran.MaterielForm -> { BackHandler { vm.retour() }; EcranFormMateriel(vm, e.id) }
                 is Ecran.Detail -> { BackHandler { vm.retour() }; EcranDetail(vm) }
+                is Ecran.PanneForm -> { BackHandler { vm.retour() }; EcranFormPanne(vm) }
+                Ecran.Utilisateurs -> { BackHandler { vm.retour() }; EcranUtilisateurs(vm) }
+                is Ecran.UtilisateurForm -> { BackHandler { vm.retour() }; EcranFormUtilisateur(vm, e.id) }
+                Ecran.Services -> { BackHandler { vm.retour() }; EcranServices(vm) }
             }
             vm.alerte?.let { n ->
                 AlertDialog(onDismissRequest = { vm.fermerAlerte() }, icon = { Icon(iconeNotification(n.type), null) },
@@ -156,6 +160,10 @@ fun EcranListe(vm: AppViewModel) {
                         Text(vm.utilisateur?.nom ?: "", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.titleSmall)
                         Text(listOfNotNull(vm.utilisateur?.role, vm.utilisateur?.service?.nom).joinToString(" · "), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        if (vm.utilisateur?.voitUtilisateurs == true) DropdownMenuItem(text = { Text("Utilisateurs") }, leadingIcon = { Icon(Icons.Rounded.Group, null) },
+                            onClick = { menu = false; vm.ouvrirUtilisateurs() })
+                        if (vm.utilisateur?.gereServices == true) DropdownMenuItem(text = { Text("Services") }, leadingIcon = { Icon(Icons.Rounded.Business, null) },
+                            onClick = { menu = false; vm.ouvrirServices() })
                         DropdownMenuItem(text = { Text(if (vm.sombre) "Thème clair" else "Thème sombre") },
                             leadingIcon = { Icon(if (vm.sombre) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, null) },
                             onClick = { vm.basculerTheme() })
@@ -311,8 +319,12 @@ fun EcranDetail(vm: AppViewModel) {
     val t = vm.detail
     var commentaire by remember { mutableStateOf("") }
     var confirmer by remember { mutableStateOf(false) }
+    var supprimer by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        EnTete(t?.reference ?: "Panne", retour = { vm.retour() })
+        EnTete(t?.reference ?: "Panne", retour = { vm.retour() }, actions = {
+            if (t?.actions?.modifier == true) IconButton({ vm.ouvrirFormPanne() }) { Icon(Icons.Rounded.Edit, "Modifier la panne") }
+            if (t?.actions?.supprimer == true) IconButton({ supprimer = true }) { Icon(Icons.Rounded.Delete, "Supprimer la panne", tint = MaterialTheme.colorScheme.error) }
+        })
         if (t == null) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return@Column }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Carte {
@@ -363,6 +375,10 @@ fun EcranDetail(vm: AppViewModel) {
             }
         }
     }
+    if (supprimer) AlertDialog(onDismissRequest = { supprimer = false },
+        title = { Text("Supprimer la panne ?") }, text = { Text("La panne et son historique seront définitivement supprimés. Cette action est irréversible.") },
+        confirmButton = { TextButton({ supprimer = false; vm.supprimerPanne() }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Supprimer") } },
+        dismissButton = { TextButton({ supprimer = false }) { Text("Garder") } })
     if (confirmer) AlertDialog(onDismissRequest = { confirmer = false },
         title = { Text("Annuler la panne ?") }, text = { Text("Le service IT sera informé que la panne est annulée.") },
         confirmButton = { TextButton({ confirmer = false; vm.annuler("Annulée par le déclarant") }) { Text("Annuler la panne") } },

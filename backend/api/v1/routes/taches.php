@@ -31,6 +31,24 @@ function v1_tache_visibilite(array $user, array &$params): string
 }
 
 /** Actions que l'utilisateur peut tenter sur cette panne (pour griser/masquer les boutons). */
+/**
+ * Niveau de modification des champs d'une panne : 'equipe' (modifier_toutes, ou modifier_siennes sur sa panne),
+ * 'declarant' (le déclarant tant que personne n'a pris la panne) ou null.
+ */
+function v1_tache_niveau_modif(array $user, array $t): ?string
+{
+    $moi = (int) $t['assigne_id'] === (int) $user['id'];
+    if (has_permission($user, 'tache.modifier_toutes') || (has_permission($user, 'tache.modifier_siennes') && $moi)) {
+        return 'equipe';
+    }
+    $final = in_array($t['statut'], TACHE_STATUTS_FINAUX, true);
+    if (!$final && (int) $t['declarant_id'] === (int) $user['id'] && $t['date_prise_en_charge'] === null
+        && $t['statut'] === 'À faire' && has_permission($user, 'tache.declarer')) {
+        return 'declarant';
+    }
+    return null;
+}
+
 function v1_tache_actions(array $user, array $t): array
 {
     $final = in_array($t['statut'], TACHE_STATUTS_FINAUX, true);
@@ -44,6 +62,8 @@ function v1_tache_actions(array $user, array $t): array
         'rouvrir' => $final && (has_permission($user, 'tache.modifier_toutes') || (has_permission($user, 'tache.modifier_siennes') && $moi)),
         'annuler' => !$final && $declarant && $t['date_prise_en_charge'] === null && $t['statut'] === 'À faire' && has_permission($user, 'tache.declarer'),
         'commenter' => true,
+        'modifier' => v1_tache_niveau_modif($user, $t) !== null,
+        'supprimer' => has_permission($user, 'tache.supprimer'),
     ];
 }
 
@@ -269,4 +289,67 @@ route('GET', 'accueil', function (array $c): void {
         $r['en_file'] = 0;
     }
     api_data($r, ['server_time' => api_now($pdo)]);
+});
+
+
+// Modification des champs d'une panne (partielle). L'équipe peut tout changer ; le déclarant seulement titre,
+// description, priorité, service et matériel, tant que personne n'a pris la panne.
+route('PATCH', 'taches/{id}', function (array $c): void {
+    $pdo = $c['pdo']; $u = $c['user']; $b = $c['body'];
+    $t = v1_tache_charger($pdo, $u, $c['params']['id']);
+    $niveau = v1_tache_niveau_modif($u, $t);
+    if ($niveau === null) {
+        api_fail(403, 'interdit', 'Vous ne pouvez pas modifier cette panne.');
+    }
+    $champs = []; $lib = [];
+    if (array_key_exists('titre', $b)) { $champs['titre'] = api_str($b, 'titre', true, 200); $lib['titre'] = 'titre'; }
+    if (array_key_exists('description', $b)) { $champs['description'] = api_str($b, 'description', false, 5000); $lib['description'] = 'description'; }
+    if (array_key_exists('priorite', $b)) { $champs['priorite'] = api_enum($b, 'priorite', ['Basse', 'Moyenne', 'Haute']); $lib['priorite'] = 'priorité'; }
+    if (array_key_exists('service_id', $b)) {
+        $sid = api_int($b, 'service_id', true);
+        $sv = $pdo->prepare("SELECT nom FROM t_services WHERE id = ?");
+        $sv->execute([$sid]);
+        $champs['service_concerne'] = $sv->fetchColumn() ?: api_fail(422, 'champ_invalide', 'Service inconnu.', ['champ' => 'service_id']);
+        $lib['service_concerne'] = 'service';
+    }
+    if (array_key_exists('materiel_id', $b)) {
+        $mid = api_int($b, 'materiel_id');
+        if ($mid === null) {
+            $champs['materiel_id'] = null; $champs['materiel_concerne'] = null;
+        } else {
+            try { materiel_trouver($pdo, $u, $mid); } catch (ApiException) {
+                api_fail(422, 'champ_invalide', 'Matériel inconnu ou inaccessible.', ['champ' => 'materiel_id']);
+            }
+            $m = $pdo->prepare("SELECT type, marque, modele, num_serie FROM t_materiel WHERE id = ?");
+            $m->execute([$mid]);
+            $m = $m->fetch();
+            $champs['materiel_id'] = $mid;
+            $champs['materiel_concerne'] = trim($m['type'] . ' ' . $m['marque'] . ' ' . $m['modele']) . ' (' . $m['num_serie'] . ')';
+        }
+        $lib['materiel_id'] = 'matériel'; $lib['materiel_concerne'] = 'matériel';
+    }
+    foreach (['motif_cause' => 'cause', 'date_limite' => 'date limite'] as $col => $nom) {
+        if (array_key_exists($col, $b)) {
+            if ($niveau !== 'equipe') {
+                api_fail(403, 'interdit', "Le champ « $col » est réservé à l'équipe IT.", ['champ' => $col]);
+            }
+            $champs[$col] = $col === 'date_limite' ? api_date($b, $col) : api_str($b, $col, false, 500);
+            $lib[$col] = $nom;
+        }
+    }
+    if (!$champs) {
+        api_fail(422, 'donnees_invalides', 'Aucun champ à modifier.');
+    }
+    $maj = tache_modifier($pdo, $c['params']['id'], $u, $champs, api_int($b, 'version'), $lib);
+    api_data(v1_tache_json($pdo, $u, v1_tache_charger($pdo, $u, (int) $maj['id'])));
+});
+
+// Suppression définitive (historique et notifications compris) : réservée à tache.supprimer.
+route('DELETE', 'taches/{id}', function (array $c): void {
+    if (!has_permission($c['user'], 'tache.supprimer')) {
+        api_fail(403, 'interdit', 'Permission manquante : tache.supprimer', ['permission' => 'tache.supprimer']);
+    }
+    v1_tache_charger($c['pdo'], $c['user'], $c['params']['id']);
+    $c['pdo']->prepare("DELETE FROM t_taches WHERE id = ?")->execute([$c['params']['id']]);
+    api_data(['supprimee' => true]);
 });

@@ -15,6 +15,9 @@ import kotlinx.serialization.Serializable
     val voitInterventions get() = peut("tache.voir_toutes")
     val voitParc get() = peut("materiel.voir_tous") || peut("materiel.voir_siens")
     val gereParc get() = peut("materiel.creer") || peut("materiel.modifier")
+    val voitUtilisateurs get() = peut("utilisateur.lister") || peut("utilisateur.gerer")
+    val gereUtilisateurs get() = peut("utilisateur.gerer")
+    val gereServices get() = peut("referentiel.gerer") || peut("referentiel.supprimer")
 }
 
 @Serializable data class Dates(
@@ -25,7 +28,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class Actions(
     val prendre: Boolean = false, val affecter: Boolean = false,
     @SerialName("changer_statut") val changerStatut: Boolean = false, val rouvrir: Boolean = false,
-    val annuler: Boolean = false, val commenter: Boolean = false,
+    val annuler: Boolean = false, val commenter: Boolean = false, val modifier: Boolean = false, val supprimer: Boolean = false,
 )
 
 @Serializable data class Evenement(
@@ -92,3 +95,21 @@ import kotlinx.serialization.Serializable
 )
 
 @Serializable data class Preferences(val email: Boolean = true, val sms: Boolean = true)
+
+/** Compte vu par un gestionnaire (liste détaillée des utilisateurs). */
+@Serializable data class UtilisateurAdmin(
+    val id: Int, val nom: String, val login: String, val email: String? = null, val telephone: String? = null,
+    val role: String = "", val service: Service? = null, val actif: Boolean = true,
+    @SerialName("connexion_autorisee") val connexionAutorisee: Boolean = true,
+    @SerialName("compte_technique") val compteTechnique: Boolean = false,
+)
+
+@Serializable data class Role(
+    val nom: String, val description: String? = null, val systeme: Boolean = false,
+    @SerialName("nb_utilisateurs") val nbUtilisateurs: Int = 0,
+)
+
+@Serializable data class ServiceAdmin(
+    val id: Int, val nom: String, val description: String? = null,
+    @SerialName("nb_utilisateurs") val nbUtilisateurs: Int = 0, @SerialName("nb_materiels") val nbMateriels: Int = 0,
+)

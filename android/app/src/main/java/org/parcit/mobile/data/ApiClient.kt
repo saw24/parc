@@ -36,6 +36,7 @@ class ApiClient(private val store: SecureStore) {
     suspend fun post(path: String, body: JsonObject, auth: Boolean = true) = call("POST", path, body, emptyMap(), auth)
     suspend fun put(path: String, body: JsonObject) = call("PUT", path, body, emptyMap(), true)
     suspend fun patch(path: String, body: JsonObject) = call("PATCH", path, body, emptyMap(), true)
+    suspend fun delete(path: String) = call("DELETE", path, null, emptyMap(), true)
 
     /** Renvoie l'enveloppe complète {data, meta}. */
     suspend fun call(

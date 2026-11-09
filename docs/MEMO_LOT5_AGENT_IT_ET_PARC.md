@@ -46,3 +46,11 @@ La colonne `t_utilisateurs.service_id` existait déjà (migration 003) mais rien
 - **Matériel (mobile)** : choisir l'utilisateur d'un équipement propose son service.
 - **À faire une fois en production** : les comptes existants n'ont pas de service. Un administrateur doit le renseigner (Utilisateurs → Modifier). Les sessions web ouvertes avant la mise à jour récupèrent leur service automatiquement à la première création de tâche.
 - Tests : 10 contrôles ajoutés dans `authz_test.php`.
+
+## Gestion mobile : pannes, utilisateurs, services (CRUD par permission)
+
+- **API** : `PATCH/DELETE taches/{id}`, `GET/POST/PATCH/DELETE utilisateurs`, `GET roles`, `GET/POST/PATCH/DELETE services` (voir `API_V1.md`). Aucune route ne teste « est administrateur » : tout dépend des permissions du rôle (`tache.modifier_*`, `tache.supprimer`, `utilisateur.lister/gerer`, `referentiel.voir/gerer/supprimer`).
+- **Garde-fous** : pas d'auto-désactivation/suppression, jamais le dernier administrateur actif, compte « Service IT » intouchable, rôle Administrateur attribuable uniquement par un administrateur, sessions web et mobiles coupées au changement de rôle / mot de passe / désactivation, renommage d'un utilisateur ou d'un service répercuté sur les textes stockés dans pannes et matériel, suppression d'un service refusée s'il est utilisé.
+- **Android** : modifier (crayon) et supprimer (corbeille) dans le détail d'une panne selon `actions.modifier/supprimer` ; menu avatar → « Utilisateurs » et « Services » affichés selon les permissions (`ui/Gestion.kt`).
+- **Pour un rôle « gestionnaire mobile »** (à créer sur le site, écran des rôles) : cocher les permissions ci-dessus voulues ; rien d'autre n'est nécessaire.
+- Tests : `api_v1_test.php` passe à 139 contrôles.

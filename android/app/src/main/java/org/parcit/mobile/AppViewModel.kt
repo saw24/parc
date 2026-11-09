@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.put
 import org.parcit.mobile.data.*
 
 sealed interface Ecran {
@@ -21,6 +22,10 @@ sealed interface Ecran {
     data class Detail(val id: Int) : Ecran
     data class MaterielDetail(val id: Int) : Ecran
     data class MaterielForm(val id: Int?) : Ecran
+    data class PanneForm(val id: Int) : Ecran
+    data object Utilisateurs : Ecran
+    data class UtilisateurForm(val id: Int?) : Ecran
+    data object Services : Ecran
 }
 
 /** Écrans principaux (barre du bas) : on y revient avec « Retour ». */
@@ -63,6 +68,12 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     var affectations by mutableStateOf<List<Affectation>>(emptyList())
     var pannesMateriel by mutableStateOf<List<Tache>>(emptyList())
     var utilisateursRef by mutableStateOf<List<UtilisateurRef>>(emptyList())
+
+    // Administration
+    var utilisateursAdmin by mutableStateOf<List<UtilisateurAdmin>>(emptyList())
+    var rechercheUtilisateurs by mutableStateOf("")
+    var roles by mutableStateOf<List<Role>>(emptyList())
+    var servicesAdmin by mutableStateOf<List<ServiceAdmin>>(emptyList())
 
     /** Nouvelle version de l'APK disponible (distribution directe : le téléchargement se fait par le lien du serveur). */
     var miseAJour by mutableStateOf<Config?>(null)
@@ -167,14 +178,23 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     fun retour() {
         val e = ecran
+        if (e is Ecran.PanneForm) { ecran = Ecran.Detail(e.id); return }
         detail = null
         ecran = when {
+            e is Ecran.UtilisateurForm -> Ecran.Utilisateurs
             e is Ecran.MaterielForm && e.id != null -> Ecran.MaterielDetail(e.id)
             e is Ecran.Scan || e is Ecran.MaterielForm || e is Ecran.MaterielDetail -> Ecran.Parc
             e is Ecran.Detail || e is Ecran.Declarer -> origine
             else -> Ecran.Liste
         }
-        when (ecran) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); else -> {} }
+        recharger()
+    }
+
+    private fun recharger() {
+        when (ecran) {
+            Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser()
+            Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); else -> {}
+        }
     }
 
     /** L'agent IT voit les actions d'équipe (note interne, affectation, statut) sur les pannes qu'il peut gérer. */
@@ -182,7 +202,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     fun aller(e: Ecran) {
         ecran = e; detail = null
-        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); else -> {} }
+        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); else -> {} }
     }
 
     // ------------------------------------------------------------------ Interventions
@@ -236,6 +256,66 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
         message = if (id == null) "Matériel ajouté." else "Matériel mis à jour."
         parc = emptyList()
         ouvrirFiche(f.id)
+    }
+
+    // ------------------------------------------------------------------ Modification / suppression d'une panne
+    fun ouvrirFormPanne() {
+        val t = detail ?: return
+        ecran = Ecran.PanneForm(t.id)
+        lancer(chargeur = false) { referentiels = repo.referentiels() }
+    }
+
+    fun modifierPanne(champs: kotlinx.serialization.json.JsonObject) { val t = detail ?: return
+        lancer {
+            detail = repo.modifierPanne(t, champs); message = "Panne modifiée."
+            ecran = Ecran.Detail(t.id)
+        } }
+
+    fun supprimerPanne() { val t = detail ?: return
+        lancer {
+            repo.supprimerPanne(t.id); message = "Panne supprimée."
+            detail = null; taches = taches.filter { it.id != t.id }; interventions = interventions.filter { it.id != t.id }
+            ecran = origine; recharger()
+        } }
+
+    // ------------------------------------------------------------------ Administration (utilisateurs, services)
+    fun ouvrirUtilisateurs() { ecran = Ecran.Utilisateurs; detail = null; chargerUtilisateurs() }
+    fun chargerUtilisateurs() = lancer(chargeur = utilisateursAdmin.isEmpty()) { utilisateursAdmin = repo.utilisateursAdmin(rechercheUtilisateurs) }
+    fun rechercherUtilisateurs(q: String) { rechercheUtilisateurs = q; chargerUtilisateurs() }
+
+    fun ouvrirFormUtilisateur(id: Int?) {
+        ecran = Ecran.UtilisateurForm(id)
+        lancer(chargeur = false) { roles = repo.roles(); referentiels = repo.referentiels() }
+    }
+
+    fun enregistrerUtilisateur(id: Int?, champs: kotlinx.serialization.json.JsonObject) = lancer {
+        repo.enregistrerUtilisateur(id, champs)
+        message = if (id == null) "Utilisateur créé." else "Utilisateur mis à jour."
+        ecran = Ecran.Utilisateurs
+        utilisateursAdmin = repo.utilisateursAdmin(rechercheUtilisateurs)
+        if (id == utilisateur?.id) utilisateur = repo.rafraichirProfil()
+    }
+
+    fun supprimerUtilisateur(id: Int) = lancer {
+        repo.supprimerUtilisateur(id); message = "Utilisateur supprimé."
+        ecran = Ecran.Utilisateurs
+        utilisateursAdmin = repo.utilisateursAdmin(rechercheUtilisateurs)
+    }
+
+    fun ouvrirServices() { ecran = Ecran.Services; detail = null; chargerServices() }
+    fun chargerServices() = lancer(chargeur = servicesAdmin.isEmpty()) { servicesAdmin = repo.servicesAdmin() }
+
+    fun enregistrerService(id: Int?, nom: String, description: String) = lancer {
+        repo.enregistrerService(id, kotlinx.serialization.json.buildJsonObject {
+            put("nom", nom.trim()); put("description", description.trim().ifBlank { null })
+        })
+        message = if (id == null) "Service créé." else "Service mis à jour."
+        servicesAdmin = repo.servicesAdmin(); referentiels = repo.referentiels()
+    }
+
+    fun supprimerService(id: Int) = lancer {
+        repo.supprimerService(id); message = "Service supprimé."
+        servicesAdmin = repo.servicesAdmin(); referentiels = repo.referentiels()
     }
 
     // ------------------------------------------------------------------ Mise à jour de l'application

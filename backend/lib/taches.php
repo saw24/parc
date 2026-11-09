@@ -392,3 +392,58 @@ function tache_declarer(PDO $pdo, array $user, array $d): array
     tache_evenement($pdo, $id, 'creation', $user, ['nouveau_statut' => 'À faire', 'nouveau_assigne_id' => $cible['id']]);
     return ['id' => $id, 'cree' => true];
 }
+
+
+/**
+ * Modifie les champs descriptifs d'une panne (titre, description, priorité, service, matériel, date limite…).
+ * Verrou de ligne + contrôle optionnel de version (409), échéances SLA recalculées si la priorité change,
+ * évènement « modification » dans l'historique. $champs : colonnes de t_taches => nouvelles valeurs.
+ * @return array la ligne t_taches à jour
+ */
+function tache_modifier(PDO $pdo, int $id, array $user, array $champs, ?int $version, array $libelles): array
+{
+    $pdo->beginTransaction();
+    try {
+        $st = $pdo->prepare("SELECT * FROM t_taches WHERE id = ? FOR UPDATE");
+        $st->execute([$id]);
+        $t = $st->fetch();
+        if (!$t) {
+            $pdo->rollBack();
+            api_fail(404, 'introuvable', 'Panne introuvable.');
+        }
+        if ($version !== null && (int) $t['version'] !== $version) {
+            $pdo->rollBack();
+            api_fail(409, 'conflit', 'Cette panne a été modifiée entre-temps : rechargez-la.', ['version_actuelle' => (int) $t['version']]);
+        }
+        $set = []; $args = []; $changes = [];
+        foreach ($champs as $col => $val) {
+            if ($t[$col] !== $val && (string) $t[$col] !== (string) $val) {
+                $set[] = "$col = ?"; $args[] = $val; $changes[] = $libelles[$col] ?? $col;
+            }
+        }
+        if ($set) {
+            if (isset($champs['priorite']) && $champs['priorite'] !== $t['priorite']) {
+                $sla = $pdo->prepare("SELECT delai_prise_en_charge_min, delai_resolution_min FROM t_sla_regles WHERE priorite = ?");
+                $sla->execute([$champs['priorite']]);
+                if ($r = $sla->fetch()) {   // échéances calculées depuis la création, pas depuis maintenant
+                    $set[] = "echeance_prise_en_charge = date_creation + (?::int * INTERVAL '1 minute')";
+                    $set[] = "echeance_resolution = date_creation + (?::int * INTERVAL '1 minute')";
+                    array_push($args, $r['delai_prise_en_charge_min'], $r['delai_resolution_min']);
+                }
+            }
+            $set[] = 'version = version + 1'; $set[] = 'updated_by_login = ?'; $args[] = $user['login']; $args[] = $id;
+            $pdo->prepare('UPDATE t_taches SET ' . implode(', ', $set) . ' WHERE id = ?')->execute($args);
+            tache_evenement($pdo, $id, 'modification', $user, ['commentaire' => 'Modifié : ' . implode(', ', $changes), 'visible_declarant' => false]);
+        }
+        $st = $pdo->prepare("SELECT * FROM t_taches WHERE id = ?");
+        $st->execute([$id]);
+        $maj = $st->fetch();
+        $pdo->commit();
+        return $maj;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}

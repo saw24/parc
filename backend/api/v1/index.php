@@ -53,7 +53,7 @@ function v1_user_json(PDO $pdo, array $user): array
     ];
 }
 
-foreach (['auth', 'divers', 'taches', 'materiel', 'notifications'] as $fichier) {
+foreach (['auth', 'divers', 'taches', 'materiel', 'notifications', 'admin'] as $fichier) {
     require __DIR__ . "/routes/$fichier.php";
 }
 
