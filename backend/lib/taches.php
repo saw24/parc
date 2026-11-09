@@ -318,3 +318,73 @@ function tache_transition(PDO $pdo, int $id, array $user, string $action, array 
         throw $e;
     }
 }
+
+
+/**
+ * Déclare une panne (API mobile). Retourne l'id et si la panne vient d'être créée.
+ * Idempotent grâce à client_uuid : rejouer le même envoi renvoie la panne existante.
+ *
+ * $d : titre, description, priorite, service_nom, materiel_id (?int), motif_cause, client_uuid,
+ *      assigne_id (?int, null = file Service IT), date_limite (?string), source
+ * @return array{id:int,cree:bool}
+ */
+function tache_declarer(PDO $pdo, array $user, array $d): array
+{
+    if (!empty($d['client_uuid'])) {
+        $st = $pdo->prepare("SELECT id, declarant_id FROM t_taches WHERE client_uuid = ?");
+        $st->execute([$d['client_uuid']]);
+        if ($ex = $st->fetch()) {
+            if ((int) $ex['declarant_id'] !== (int) $user['id']) {
+                api_fail(409, 'uuid_deja_utilise', 'Cet identifiant client est déjà utilisé.');
+            }
+            return ['id' => (int) $ex['id'], 'cree' => false];
+        }
+    }
+    $file = tache_file_commune($pdo);
+    if (!$file) {
+        api_fail(500, 'file_introuvable', 'File « Service IT » introuvable (migrations non appliquées ?).');
+    }
+    $assigneId = $d['assigne_id'] ?? $file['id'];
+    $st = $pdo->prepare("SELECT id, nom, est_file_commune FROM t_utilisateurs WHERE id = ? AND actif");
+    $st->execute([$assigneId]);
+    $cible = $st->fetch();
+    if (!$cible) {
+        api_fail(422, 'champ_invalide', 'Agent destinataire introuvable.', ['champ' => 'assigne_id']);
+    }
+    $personne = !$cible['est_file_commune'];
+
+    $libelle = null;
+    if (!empty($d['materiel_id'])) {
+        $m = $pdo->prepare("SELECT type, marque, modele, num_serie FROM t_materiel WHERE id = ?");
+        $m->execute([$d['materiel_id']]);
+        $m = $m->fetch();
+        // Même format que le formulaire web : « type marque modèle (n° série) ».
+        $libelle = $m ? trim($m['type'] . ' ' . $m['marque'] . ' ' . $m['modele']) . ' (' . $m['num_serie'] . ')' : null;
+    }
+    [$pec, $res] = tache_echeances($pdo, $d['priorite']);
+    $dateLimite = $d['date_limite'] ?? ($res ? substr((string) $res, 0, 10) : date('Y-m-d'));
+
+    try {
+        $st = $pdo->prepare("
+            INSERT INTO t_taches (titre, motif_cause, description, priorite, statut, assigne_a, assigne_id, declarant_id,
+                materiel_concerne, materiel_id, service_concerne, date_limite, source, client_uuid,
+                echeance_prise_en_charge, echeance_resolution, date_prise_en_charge, created_by_login, updated_by_login)
+            VALUES (?, ?, ?, ?, 'À faire', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN NOW() ELSE NULL END, ?, ?)
+            RETURNING id
+        ");
+        $st->execute([$d['titre'], $d['motif_cause'] ?? null, $d['description'] ?? null, $d['priorite'], $cible['nom'], $cible['id'],
+            $user['id'], $libelle, $d['materiel_id'] ?? null, $d['service_nom'], $dateLimite, $d['source'] ?? 'mobile',
+            $d['client_uuid'] ?? null, $pec, $res, $personne ? 'true' : 'false', $user['login'], $user['login']]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23505' && !empty($d['client_uuid'])) {
+            // Course : une requête identique vient d'aboutir.
+            $st = $pdo->prepare("SELECT id FROM t_taches WHERE client_uuid = ?");
+            $st->execute([$d['client_uuid']]);
+            return ['id' => (int) $st->fetchColumn(), 'cree' => false];
+        }
+        throw $e;
+    }
+    $id = (int) $st->fetchColumn();
+    tache_evenement($pdo, $id, 'creation', $user, ['nouveau_statut' => 'À faire', 'nouveau_assigne_id' => $cible['id']]);
+    return ['id' => $id, 'cree' => true];
+}

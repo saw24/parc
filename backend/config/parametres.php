@@ -52,6 +52,13 @@ function get_default_parametres(): array
         'smtp_from_email' => '',
         'smtp_from_name'  => 'Parc Info',
 
+        // --- Application mobile : versions (contrôle de mise à jour) ---
+        // Une application dont la version est inférieure à la minimale reçoit « 426 app_obsolete ».
+        'app_version_courante' => '1.0.0',
+        'app_version_minimale' => '1.0.0',
+        'app_apk_url'          => '', // lien de téléchargement de l'APK (distribution directe)
+        'app_notes_version'    => '',
+
         // --- Bookkeeping interne (dernier envoi), non exposé dans l'écran Paramètres ---
         'last_digest_sent_at'   => '',
         'last_escalade_sent_at' => '',
