@@ -148,6 +148,7 @@ fun EcranFormMateriel(vm: AppViewModel, id: Int?) {
     var agent by remember { mutableStateOf(f?.utilisateur?.let { s -> s.id?.let { UtilisateurRef(it, s.nom ?: "") } }) }
     var serviceTouche by remember { mutableStateOf(false) }
     var agentTouche by remember { mutableStateOf(false) }
+    var scan by remember { mutableStateOf(false) }
     val dateOk = achat.isBlank() || Regex("\\d{4}-\\d{2}-\\d{2}").matches(achat.trim())
     Column(Modifier.fillMaxSize()) {
         EnTete(if (id == null) "Nouveau matériel" else "Modifier le matériel", retour = { vm.retour() })
@@ -157,13 +158,15 @@ fun EcranFormMateriel(vm: AppViewModel, id: Int?) {
             else Champ(type, { type = it }, "Type *")
             Champ(marque, { marque = it }, "Marque")
             Champ(modele, { modele = it }, "Modèle")
-            Champ(serie, { serie = it }, "Numéro de série", icone = Icons.Rounded.QrCode2)
+            Champ(serie, { serie = it }, "Numéro de série", icone = Icons.Rounded.QrCode2,
+                action = { IconButton({ scan = true }) { Icon(Icons.Rounded.QrCodeScanner, "Scanner l'étiquette ou le code-barres") } })
             Champ(achat, { achat = it }, "Date d'achat (AAAA-MM-JJ)", erreur = !dateOk)
             Choix("Statut *", vm.referentiels.statutsMateriel, statut, { it }) { statut = it ?: statut }
             Choix("Service", vm.referentiels.services, service, { it.nom }, optionnel = true) { service = it; serviceTouche = true }
             if (vm.utilisateursRef.isNotEmpty())
                 Choix("Utilisateur", vm.utilisateursRef, agent, { it.nom }, optionnel = true) { agent = it; agentTouche = true }
         }
+        if (scan) DialogueScan("Scanner le numéro de série", onCode = { serie = numeroDeSerie(it); scan = false }, onFermer = { scan = false })
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
             Box(Modifier.padding(16.dp)) {
                 BoutonPrincipal("Enregistrer", {

@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -38,29 +40,49 @@ import com.google.mlkit.vision.common.InputImage
 import org.parcit.mobile.AppViewModel
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Lecture des étiquettes QR du parc (contenu « … | SN:xxx | ID:12 »), avec saisie manuelle du numéro de série en secours. */
+/** Zone caméra avec cadre de visée et demande d'autorisation ; appelle [onCode] une seule fois par lecture. */
 @Composable
-fun EcranScan(vm: AppViewModel) {
+fun ZoneScan(modifier: Modifier = Modifier, onCode: (String) -> Unit) {
     val ctx = LocalContext.current
     var autorise by remember { mutableStateOf(ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val demande = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { autorise = it }
     LaunchedEffect(Unit) { if (!autorise) demande.launch(Manifest.permission.CAMERA) }
+    Box(modifier.clip(MaterialTheme.shapes.large).background(Color.Black)) {
+        if (autorise) {
+            CameraScan(Modifier.fillMaxSize(), onCode)
+            Canvas(Modifier.fillMaxSize()) {
+                val c = minOf(size.width, size.height) * 0.62f
+                drawRoundRect(Color.White, Offset((size.width - c) / 2, (size.height - c) / 2), Size(c, c), CornerRadius(28.dp.toPx()), style = Stroke(width = 3.dp.toPx()))
+            }
+            Text("Placez l'étiquette dans le cadre", Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        } else EtatVide(Icons.Rounded.QrCodeScanner, "Caméra non autorisée", "Autorisez la caméra, ou saisissez le numéro de série à la main.")
+    }
+}
+
+/** Extrait le numéro de série d'une étiquette « … | SN:xxx | ID:12 » ; sinon renvoie le code tel quel (code-barres simple). */
+fun numeroDeSerie(code: String): String =
+    Regex("SN:\\s*([^|]+)").find(code)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() } ?: code.trim()
+
+/** Scanner plein écran en fenêtre : l'écran appelant (formulaire) garde sa saisie en cours. */
+@Composable
+fun DialogueScan(titre: String, onCode: (String) -> Unit, onFermer: () -> Unit) {
+    Dialog(onFermer, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize().systemBarsPadding()) {
+                EnTete(titre, retour = onFermer)
+                ZoneScan(Modifier.weight(1f).fillMaxWidth().padding(16.dp), onCode)
+            }
+        }
+    }
+}
+
+/** Lecture des étiquettes QR du parc (contenu « … | SN:xxx | ID:12 »), avec saisie manuelle du numéro de série en secours. */
+@Composable
+fun EcranScan(vm: AppViewModel) {
     var manuel by remember { mutableStateOf("") }
-    val cadre = Color.White
     Column(Modifier.fillMaxSize()) {
         EnTete("Scanner une étiquette", retour = { vm.retour() })
-        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp).clip(MaterialTheme.shapes.large).background(Color.Black)) {
-            if (autorise) {
-                CameraScan(Modifier.fillMaxSize()) { vm.codeScanne(it) }
-                // Cadre de visée
-                Canvas(Modifier.fillMaxSize()) {
-                    val c = minOf(size.width, size.height) * 0.62f
-                    val gauche = (size.width - c) / 2; val haut = (size.height - c) / 2
-                    drawRoundRect(cadre, Offset(gauche, haut), Size(c, c), CornerRadius(28.dp.toPx()), style = Stroke(width = 3.dp.toPx()))
-                }
-                Text("Placez l'étiquette QR dans le cadre", Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.White, style = MaterialTheme.typography.bodyMedium)
-            } else EtatVide(Icons.Rounded.QrCodeScanner, "Caméra non autorisée", "Autorisez la caméra, ou saisissez le numéro de série ci-dessous.")
-        }
+        ZoneScan(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) { vm.codeScanne(it) }
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Champ(manuel, { manuel = it }, "Numéro de série", Modifier.weight(1f), icone = Icons.Rounded.QrCode2)
             BoutonSecondaire("Chercher", { vm.codeScanne(manuel.trim()) }, enabled = manuel.isNotBlank() && !vm.chargement)

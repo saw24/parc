@@ -150,10 +150,10 @@ fun BoutonSecondaire(texte: String, onClick: () -> Unit, modifier: Modifier = Mo
 @Composable
 fun Champ(
     valeur: String, onChange: (String) -> Unit, libelle: String, modifier: Modifier = Modifier, minLignes: Int = 1,
-    erreur: Boolean = false, icone: ImageVector? = null, singleLine: Boolean = minLignes == 1,
+    erreur: Boolean = false, icone: ImageVector? = null, singleLine: Boolean = minLignes == 1, action: (@Composable () -> Unit)? = null,
 ) = OutlinedTextField(
     valeur, onChange, modifier.fillMaxWidth(), label = { Text(libelle) }, minLines = minLignes, singleLine = singleLine, isError = erreur,
-    shape = MaterialTheme.shapes.medium, leadingIcon = icone?.let { { Icon(it, null) } },
+    shape = MaterialTheme.shapes.medium, leadingIcon = icone?.let { { Icon(it, null) } }, trailingIcon = action,
     colors = OutlinedTextFieldDefaults.colors(
         focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
         unfocusedBorderColor = MaterialTheme.colorScheme.outline,
