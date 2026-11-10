@@ -6,6 +6,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Firebase (notifications push) : actif seulement si google-services.json est présent dans app/ (fichier propre au projet Firebase, hors dépôt).
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+
 // Signature de la version de production : keystore.properties (hors dépôt) contient
 // storeFile, storePassword, keyAlias, keyPassword. Sans ce fichier, la version release n'est pas signée.
 val signature = Properties().apply { rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
@@ -56,5 +59,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")   // modèle embarqué : fonctionne sans services Google Play
+    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
+    implementation("com.google.firebase:firebase-messaging")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -236,7 +236,7 @@ function notif_envoyer_file(PDO $pdo, array $params, int $limite = 50, array $tr
     $pdo->beginTransaction();
     try {
         $lignes = $pdo->query("
-            SELECT v.*, n.titre, n.message, n.tache_id, n.id AS nid FROM t_notifications_envois v
+            SELECT v.*, n.titre, n.message, n.tache_id, n.id AS nid, n.prenable FROM t_notifications_envois v
             JOIN t_notifications n ON n.id = v.notification_id
             WHERE v.statut = 'en_attente' AND v.prochain_essai <= CURRENT_TIMESTAMP
             ORDER BY v.id LIMIT $limite FOR UPDATE OF v SKIP LOCKED
@@ -294,8 +294,13 @@ function notif_transport_push(string $token, string $titre, string $message, arr
     $access = notif_fcm_access_token($params);
     $corps = json_encode(['message' => [
         'token' => $token,
-        'notification' => ['title' => $titre, 'body' => mb_strimwidth($message, 0, 200, '…')],
-        'data' => ['tache_id' => (string) ($ligne['tache_id'] ?? ''), 'notification_id' => (string) ($ligne['nid'] ?? '')],
+        // Message « données » seul : l'application construit elle-même la notification (action « Je prends »,
+        // même identifiant que la scrutation → pas de doublon).
+        'data' => [
+            'tache_id' => (string) ($ligne['tache_id'] ?? ''), 'notification_id' => (string) ($ligne['nid'] ?? ''),
+            'titre' => $titre, 'message' => mb_strimwidth($message, 0, 300, '…'),
+            'peut_prendre' => !empty($ligne['prenable']) ? '1' : '0',
+        ],
         'android' => ['priority' => 'HIGH'],
     ]], JSON_UNESCAPED_UNICODE);
     try {

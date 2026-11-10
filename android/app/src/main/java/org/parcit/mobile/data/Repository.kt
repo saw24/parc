@@ -132,6 +132,12 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         return if (recentDabord) liste else liste.reversed()
     }
 
+    /** Envoie le jeton push de cet appareil au serveur (sans effet si Firebase n'est pas configuré). */
+    suspend fun enregistrerPush(jeton: String? = null) {
+        val t = jeton ?: org.parcit.mobile.Push.jeton(ctx) ?: return
+        api.put("appareils/courant", buildJsonObject { put("fcm_token", t); put("version_app", org.parcit.mobile.BuildConfig.VERSION_NAME) })
+    }
+
     suspend fun agents(): List<Agent> = api.get("agents").data()
 
     suspend fun affecter(t: Tache, assigneId: Int, commentaire: String?): Tache {

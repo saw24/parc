@@ -62,6 +62,29 @@ object Alertes {
         runCatching { NotificationManagerCompat.from(ctx).notify(n.id.toInt(), b.build()) }
     }
 
+    /** Notification reçue par push : même identifiant que la scrutation, donc jamais en double. */
+    fun afficherPush(ctx: Context, id: Int, titre: String, message: String, tacheId: Int, peutPrendre: Boolean) {
+        if (!autorise(ctx)) return
+        val ouvrir = PendingIntent.getActivity(
+            ctx, id, Intent(ctx, MainActivity::class.java).putExtra(EXTRA_TACHE, tacheId)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val b = NotificationCompat.Builder(ctx, CANAL)
+            .setSmallIcon(android.R.drawable.stat_notify_more).setContentTitle(titre).setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setContentIntent(ouvrir).setAutoCancel(true).setOnlyAlertOnce(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        if (peutPrendre && tacheId > 0) {
+            val prendre = PendingIntent.getBroadcast(
+                ctx, id, Intent(ctx, PrendreReceiver::class.java).setAction(ACTION_PRENDRE)
+                    .putExtra(EXTRA_TACHE, tacheId).putExtra("notif", id),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            b.addAction(0, "Je prends", prendre)
+        }
+        runCatching { NotificationManagerCompat.from(ctx).notify(id, b.build()) }
+    }
+
     fun resultat(ctx: Context, notifId: Int, texte: String) {
         if (!autorise(ctx)) return
         val b = NotificationCompat.Builder(ctx, CANAL).setSmallIcon(android.R.drawable.stat_notify_more)

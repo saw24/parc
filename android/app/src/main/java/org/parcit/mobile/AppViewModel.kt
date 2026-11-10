@@ -56,6 +56,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     var periode by mutableStateOf("semaine")        // jour | semaine | mois | tout (vue « Toutes » seulement)
     var agentFiltre by mutableStateOf<Int?>(null)    // « pris en charge par »
     var recentDabord by mutableStateOf(true)
+    private var pushEnregistre = false
     var recherche by mutableStateOf("")
     var interventions by mutableStateOf<List<Tache>>(emptyList())
     var agents by mutableStateOf<List<Agent>>(emptyList())
@@ -154,6 +155,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     fun connecter(serveur: String, login: String, mdp: String) = lancer {
         utilisateur = repo.login(serveur, login.trim(), mdp)
+        runCatching { repo.enregistrerPush() }
         Alertes.planifierScrutation(app)
         this.serveur = app.store.serverUrl
         ecran = Ecran.Liste
@@ -168,6 +170,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun actualiser() {
         if (utilisateur == null) return
         lancer(chargeur = taches.isEmpty()) {
+            if (!pushEnregistre) { pushEnregistre = true; runCatching { repo.enregistrerPush() } }
             repo.viderFile(); brouillons = repo.brouillons()
             utilisateur = repo.rafraichirProfil()
             taches = repo.mesDeclarations()
