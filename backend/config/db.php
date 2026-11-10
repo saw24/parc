@@ -9,9 +9,16 @@ require_once __DIR__ . '/env.php';
 // accessible en HTTP, quelle que soit la config du serveur). On retombe sur
 // le .env à la racine du projet si le premier est absent (portabilité vers
 // une autre machine / un autre déploiement).
-$env = load_env('/Users/saw24/mes_fichiers_env/taches/.env');
-if (empty($env)) {
-    $env = load_env(__DIR__ . '/../../.env');
+// Ordre : PARC_ENV_FILE (variable d'environnement) > serveur de production > poste de dev > racine du projet.
+$env = [];
+foreach (array_filter([
+    getenv('PARC_ENV_FILE') ?: null,
+    '/srv/apps/parc-secrets/.env',
+    '/Users/saw24/mes_fichiers_env/taches/.env',
+    __DIR__ . '/../../.env',
+]) as $fichier_env) {
+    $env = load_env($fichier_env);
+    if (!empty($env)) break;
 }
 
 // Paramètres de connexion (avec valeurs par défaut de secours si .env absent)
