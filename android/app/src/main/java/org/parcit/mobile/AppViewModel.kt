@@ -214,9 +214,9 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     }
 
     // ------------------------------------------------------------------ Interventions
-    fun chargerInterventions() = lancer(chargeur = interventions.isEmpty()) { interventions = repo.interventions(filtre, recherche, periode, agentFiltre, recentDabord) }
-    fun appliquerFiltres(periode: String, agent: Int?, recent: Boolean) { this.periode = periode; agentFiltre = agent; recentDabord = recent; chargerInterventions() }
-    fun choisirFiltre(f: String) { filtre = f; chargerInterventions() }
+    fun chargerInterventions(avecBarre: Boolean = false) = lancer(chargeur = avecBarre || interventions.isEmpty()) { interventions = repo.interventions(filtre, recherche, periode, agentFiltre, recentDabord) }
+    fun appliquerFiltres(periode: String, agent: Int?, recent: Boolean) { this.periode = periode; agentFiltre = agent; recentDabord = recent; chargerInterventions(avecBarre = true) }
+    fun choisirFiltre(f: String) { filtre = f; chargerInterventions(avecBarre = true) }
     fun rechercherInterventions(q: String) { recherche = q; chargerInterventions() }
 
     fun chargerAgents() = lancer(chargeur = false) { agents = repo.agents() }

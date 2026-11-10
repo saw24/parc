@@ -29,8 +29,11 @@ fun EcranInterventions(vm: AppViewModel) {
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().blur(if (feuille) 10.dp else 0.dp)) {
         EnTete("Interventions", "${vm.interventions.size} panne(s)", actions = {
-            IconButton({ vm.chargerInterventions() }) { Icon(Icons.Rounded.Refresh, "Actualiser") }
+            IconButton({ vm.chargerInterventions(avecBarre = true) }) { Icon(Icons.Rounded.Refresh, "Actualiser") }
         })
+        Box(Modifier.fillMaxWidth().height(4.dp).padding(horizontal = 24.dp, vertical = 1.dp)) {
+            if (vm.chargement) LinearProgressIndicator(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primaryContainer)
+        }
         val filtres = listOf("file" to "À prendre", "moi" to "Mes tâches", "ouvertes" to "Ouvertes", "toutes" to "Toutes")
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             filtres.forEachIndexed { i, (k, l) ->

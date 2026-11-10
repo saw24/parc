@@ -94,7 +94,7 @@ fun Root(vm: AppViewModel) {
                         }
                     })
             }
-            if (vm.chargement) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            if (vm.chargement && vm.ecran != Ecran.Interventions) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
     }
     }
