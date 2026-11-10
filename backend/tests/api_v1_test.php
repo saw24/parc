@@ -249,7 +249,7 @@ try {
     $r = api('GET', 'taches?depuis=' . $demain, null, $A('tech'));
     check('période : depuis demain → vide', $r[0] === 200 && count($r[1]['data']) === 0);
     $r = api('GET', 'taches?jusqu_a=' . $hier, null, $A('tech'));
-    check('période : jusqu\'à hier exclut les pannes du jour', $r[0] === 200 && !array_filter($r[1]['data'], fn($t) => str_starts_with((string) ($t['updated_at'] ?? ''), $aujourdhui)));
+    check('période : jusqu\'à hier exclut les pannes du jour', $r[0] === 200 && !array_filter($r[1]['data'], fn($t) => str_starts_with((string) ($t['dates']['creation'] ?? ''), $aujourdhui)));
     check('période : date invalide → 422', api('GET', 'taches?depuis=hier', null, $A('tech'))[0] === 422);
     $r = api('GET', 'accueil', null, $A('agent'));
     check('accueil agent : mes pannes ouvertes', $r[0] === 200 && $r[1]['data']['mes_pannes_ouvertes'] === 1 && $r[1]['data']['en_file'] === 0, json_encode($r[1]['data'] ?? null));

@@ -80,7 +80,7 @@ private fun FeuilleFiltres(vm: AppViewModel, fermer: () -> Unit) {
                 TextButton({ periode = "semaine"; agent = null; recent = true }) { Text("Réinitialiser") }
             }
             if (toutes) {
-                Text("Période", style = MaterialTheme.typography.titleSmall)
+                Text("Période de déclaration", style = MaterialTheme.typography.titleSmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("jour" to "Aujourd'hui", "semaine" to "Cette semaine", "mois" to "Ce mois", "tout" to "Tout").forEach { (k, l) ->
                         FilterChip(periode == k, { periode = k }, { Text(l) })

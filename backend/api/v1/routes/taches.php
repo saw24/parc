@@ -150,9 +150,9 @@ route('GET', 'taches', function (array $c): void {
         $where[] = '(t.titre ILIKE ? OR t.reference ILIKE ? OR t.description ILIKE ?)';
         array_push($params, $motif, $motif, $motif);
     }
-    // Période (dates AAAA-MM-JJ incluses) sur la dernière modification, cohérente avec le tri.
-    if ($depuis = api_date($q, 'depuis')) { $where[] = 't.date_modification >= ?::date'; $params[] = $depuis; }
-    if ($jusqua = api_date($q, 'jusqu_a')) { $where[] = "t.date_modification < (?::date + INTERVAL '1 day')"; $params[] = $jusqua; }
+    // Période (dates AAAA-MM-JJ incluses) sur la date de déclaration (création) de la panne.
+    if ($depuis = api_date($q, 'depuis')) { $where[] = 't.date_creation >= ?::date'; $params[] = $depuis; }
+    if ($jusqua = api_date($q, 'jusqu_a')) { $where[] = "t.date_creation < (?::date + INTERVAL '1 day')"; $params[] = $jusqua; }
     if (!empty($q['updated_since'])) {
         $where[] = 't.date_modification > ?'; $params[] = api_ts_in($pdo, (string) $q['updated_since']);
     }
