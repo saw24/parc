@@ -595,3 +595,84 @@ route('DELETE', 'types_materiel/{id}', function (array $c): void {
     $pdo->prepare("DELETE FROM t_type_materiel WHERE id = ?")->execute([$id]);
     api_data(['supprime' => true]);
 });
+
+// ---------------------------------------------------------------- Diagnostic des notifications (administrateur)
+// Remplace les requêtes SQL manuelles : état de la file d'envoi, appareils enregistrés, tests de bout en bout.
+
+require_once __DIR__ . '/../../../lib/notif_pannes.php';
+
+route('GET', 'diagnostic/notifications', function (array $c): void {
+    $pdo = $c['pdo'];
+    require_permission_v1($c['user'], 'parametre.gerer');
+    $p = get_parametres($pdo);
+    $file = $pdo->query("SELECT canal, statut, COUNT(*) AS n FROM t_notifications_envois GROUP BY 1, 2 ORDER BY 1, 2")->fetchAll();
+    // Le destinataire d'un push est un jeton : on ne le renvoie jamais, seulement la personne concernée.
+    $derniers = $pdo->query("
+        SELECT v.id, v.canal, v.statut, v.tentatives, left(v.erreur, 300) AS erreur, v.prochain_essai, v.envoye_at, v.created_at, u.login
+        FROM t_notifications_envois v JOIN t_notifications n ON n.id = v.notification_id JOIN t_utilisateurs u ON u.id = n.user_id
+        ORDER BY v.id DESC LIMIT 15")->fetchAll();
+    $appareils = $pdo->query("
+        SELECT a.id, u.login, a.nom, a.plateforme, a.version_app, (a.fcm_token IS NOT NULL) AS a_un_jeton, a.derniere_activite
+        FROM t_appareils a JOIN t_utilisateurs u ON u.id = a.user_id WHERE a.revoque_at IS NULL ORDER BY a.derniere_activite DESC NULLS LAST LIMIT 30")->fetchAll();
+    api_data([
+        'configuration' => [
+            'push_actif' => $p['fcm_actif'] === '1', 'push_projet' => $p['fcm_projet'], 'push_compte_service' => trim((string) $p['fcm_compte_service']) !== '',
+            'sms_actif' => $p['sms_actif'] === '1', 'email_actif' => $p['email_notifications_actives'] === '1',
+        ],
+        'file' => array_map(fn($r) => ['canal' => $r['canal'], 'statut' => $r['statut'], 'nombre' => (int) $r['n']], $file),
+        'derniers_envois' => array_map(fn($r) => [
+            'id' => (int) $r['id'], 'canal' => $r['canal'], 'statut' => $r['statut'], 'tentatives' => (int) $r['tentatives'], 'erreur' => $r['erreur'],
+            'utilisateur' => $r['login'], 'cree' => api_ts($pdo, $r['created_at']), 'envoye' => api_ts($pdo, $r['envoye_at']), 'prochain_essai' => api_ts($pdo, $r['prochain_essai']),
+        ], $derniers),
+        'appareils' => array_map(fn($r) => [
+            'id' => (int) $r['id'], 'utilisateur' => $r['login'], 'nom' => $r['nom'], 'plateforme' => $r['plateforme'], 'version_app' => $r['version_app'],
+            'jeton_push' => (bool) $r['a_un_jeton'], 'derniere_activite' => api_ts($pdo, $r['derniere_activite']),
+        ], $appareils),
+    ]);
+});
+
+/** Test de bout en bout : jeton Google, puis un push vers les appareils de l'administrateur qui le demande. */
+route('POST', 'diagnostic/push-test', function (array $c): void {
+    $pdo = $c['pdo'];
+    require_permission_v1($c['user'], 'parametre.gerer');
+    $p = get_parametres($pdo);
+    $etapes = [];
+    $etape = function (string $nom, callable $f) use (&$etapes): bool {
+        $t0 = microtime(true);
+        try { $detail = $f(); $ok = true; } catch (Throwable $e) { $detail = $e->getMessage(); $ok = false; }
+        $etapes[] = ['nom' => $nom, 'ok' => $ok, 'duree_ms' => (int) round((microtime(true) - $t0) * 1000), 'detail' => is_string($detail) ? $detail : null];
+        return $ok;
+    };
+    $pret = $etape('Configuration', function () use ($p) {
+        if ($p['fcm_actif'] !== '1') { throw new RuntimeException('Les notifications push ne sont pas activées dans les paramètres.'); }
+        if (trim($p['fcm_projet']) === '') { throw new RuntimeException('Identifiant du projet Firebase manquant.'); }
+        if (trim((string) $p['fcm_compte_service']) === '') { throw new RuntimeException('Compte de service Firebase manquant.'); }
+        return 'Projet ' . $p['fcm_projet'];
+    });
+    if ($pret) { $pret = $etape('Connexion à Google (jeton d\'accès)', fn() => notif_fcm_access_token($p) !== '' ? 'Jeton obtenu.' : ''); }
+    if ($pret) {
+        $st = $pdo->prepare("SELECT id, nom, fcm_token FROM t_appareils WHERE user_id = ? AND revoque_at IS NULL AND fcm_token IS NOT NULL");
+        $st->execute([$c['user']['id']]);
+        $appareils = $st->fetchAll();
+        if (!$appareils) {
+            $etapes[] = ['nom' => 'Appareils', 'ok' => false, 'duree_ms' => 0,
+                'detail' => 'Aucun de vos appareils n\'a de jeton push : connectez-vous sur l\'application mobile avec ce compte.'];
+        }
+        foreach ($appareils as $a) {
+            $etape('Envoi vers « ' . ($a['nom'] ?: 'appareil ' . $a['id']) . ' »', function () use ($a, $p, $pdo) {
+                notif_transport_push($a['fcm_token'], 'Test Parc IT', 'Les notifications push fonctionnent.', $p, ['_pdo' => $pdo, 'tache_id' => 0, 'nid' => 0, 'prenable' => false]);
+                return 'Accepté par Firebase (mettez l\'application en arrière-plan pour voir la notification).';
+            });
+        }
+    }
+    api_data(['ok' => !array_filter($etapes, fn($e) => !$e['ok']), 'etapes' => $etapes]);
+});
+
+/** Traite tout de suite les évènements et la file d'envoi (équivalent d'une exécution du script planifié). */
+route('POST', 'diagnostic/notifications/traiter', function (array $c): void {
+    $pdo = $c['pdo'];
+    require_permission_v1($c['user'], 'parametre.gerer');
+    $crees = notif_traiter_evenements($pdo);
+    [$envoyes, $echecs] = notif_envoyer_file($pdo, get_parametres($pdo), 200);
+    api_data(['notifications_creees' => $crees, 'envois_reussis' => $envoyes, 'abandons' => $echecs]);
+});

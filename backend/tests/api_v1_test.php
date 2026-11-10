@@ -402,6 +402,13 @@ try {
         && !isset($r[1]['data']['sms_jeton']) && !str_contains($r[3], 'secret-123'));
     check('jeton vide = conservé', api('PATCH', 'parametres', ['sms_jeton' => '', 'sms_expediteur' => 'ParcIT'], $A('admin'))[1]['data']['sms_jeton_configure'] === true);
     check('paramètre inconnu → 422', api('PATCH', 'parametres', ['nimporte' => 'x'], $A('admin'))[0] === 422);
+    check('diagnostic : refusé au gestionnaire', api('GET', 'diagnostic/notifications', null, $A('gest'))[0] === 403);
+    $r = api('GET', 'diagnostic/notifications', null, $A('admin'));
+    check('diagnostic : état de la file, envois et appareils', $r[0] === 200 && isset($r[1]['data']['configuration'], $r[1]['data']['file'], $r[1]['data']['appareils']) && !str_contains(json_encode($r[1]['data']), 'tok-fcm'));
+    $r = api('POST', 'diagnostic/push-test', [], $A('admin'));
+    check('test push : échec lisible si push désactivé', $r[0] === 200 && $r[1]['data']['ok'] === false && $r[1]['data']['etapes'][0]['nom'] === 'Configuration');
+    check('test push : refusé au gestionnaire', api('POST', 'diagnostic/push-test', [], $A('gest'))[0] === 403);
+    check('traiter la file : réservé à l\'admin', api('POST', 'diagnostic/notifications/traiter', [], $A('gest'))[0] === 403 && api('POST', 'diagnostic/notifications/traiter', [], $A('admin'))[0] === 200);
     check('compte de service FCM invalide → 422', api('PATCH', 'parametres', ['fcm_compte_service' => '{"a":1}'], $A('admin'))[0] === 422);
     $r = api('PATCH', 'parametres', ['fcm_compte_service' => json_encode(['private_key' => 'k', 'client_email' => 'x@y.iam', 'project_id' => 'zz-p'])], $A('admin'));
     check('compte de service FCM valide : enregistré, jamais renvoyé', $r[0] === 200 && $r[1]['data']['fcm_compte_service_configure'] === true && !isset($r[1]['data']['fcm_compte_service']));

@@ -89,3 +89,11 @@ Chaque panne porte `actions` (`prendre`, `affecter`, `changer_statut`, `rouvrir`
 - **Migration** : `007_api_mobile.sql` (table `t_appareils`, colonne `t_taches.client_uuid`) avant de déployer le code.
 - **Mise à jour de l'application** : renseigner `app_version_courante`, `app_version_minimale`, `app_apk_url` dans la table `t_parametres` (écran Paramètres au lot 6).
 - **Notifications** : voir `docs/MEMO_LOT4_NOTIFICATIONS.md` (migration 008, script `scripts/notifications.php`, paramètres `sms_*` / `fcm_*`).
+
+## Diagnostic des notifications (`parametre.gerer`)
+
+| Route | Rôle |
+|---|---|
+| `GET diagnostic/notifications` | configuration (push/SMS/e-mail), compteurs de la file par canal et statut, 15 derniers envois (avec erreur), appareils connectés et présence d'un jeton push (jamais le jeton) |
+| `POST diagnostic/push-test` | test de bout en bout : configuration → jeton Google → push vers les appareils de l'administrateur ; renvoie `etapes[{nom, ok, duree_ms, detail}]` |
+| `POST diagnostic/notifications/traiter` | traite immédiatement les évènements et la file d'envoi (équivalent du script planifié) |

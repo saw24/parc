@@ -96,6 +96,48 @@ $(function () {
     }
     $('.sidebar-menu a[href="#parametres"]').on('click', chargerNotifParametres);
 
+    // ---------------------------------------------------------------- Diagnostic des notifications
+    const heure = (iso) => iso ? new Date(iso).toLocaleString('fr-FR') : '—';
+    const pastille = (ok, texte) => '<span style="color:' + (ok ? '#15803d' : '#b91c1c') + ';font-weight:600">' + (ok ? '✔ ' : '✘ ') + esc(texte) + '</span>';
+
+    function chargerDiagnostic() {
+        if (!estAdmin()) { $('#diag-notif').hide(); return; }
+        v1('GET', 'diagnostic/notifications').done(function (r) {
+            const d = r.data, cfg = d.configuration;
+            let h = '<p><strong>Configuration :</strong> ' +
+                pastille(cfg.push_actif, 'push ' + (cfg.push_actif ? 'activé' : 'désactivé')) + ' · ' +
+                pastille(cfg.push_compte_service && !!cfg.push_projet, 'projet ' + (cfg.push_projet || 'non renseigné') + (cfg.push_compte_service ? ', compte de service enregistré' : ', compte de service manquant')) + ' · ' +
+                pastille(cfg.email_actif, 'e-mail ' + (cfg.email_actif ? 'activé' : 'désactivé')) + ' · ' +
+                pastille(cfg.sms_actif, 'SMS ' + (cfg.sms_actif ? 'activé' : 'désactivé')) + '</p>';
+            h += '<h4>File d\'envoi</h4>' + (d.file.length ? '<ul>' + d.file.map(f => '<li>' + esc(f.canal) + ' — ' + esc(f.statut) + ' : ' + f.nombre + '</li>').join('') + '</ul>' : '<p class="field-hint">Aucun envoi pour le moment.</p>');
+            h += '<h4>Derniers envois</h4>';
+            h += d.derniers_envois.length ? '<table class="data-table"><thead><tr><th>#</th><th>Canal</th><th>Pour</th><th>Statut</th><th>Essais</th><th>Créé</th><th>Erreur</th></tr></thead><tbody>' +
+                d.derniers_envois.map(e => '<tr><td>' + e.id + '</td><td>' + esc(e.canal) + '</td><td>' + esc(e.utilisateur) + '</td><td>' + esc(e.statut) + '</td><td>' + e.tentatives + '</td><td>' + heure(e.cree) + '</td><td>' + esc(e.erreur || '') + '</td></tr>').join('') + '</tbody></table>'
+                : '<p class="field-hint">Aucun envoi.</p>';
+            h += '<h4>Appareils connectés</h4>';
+            h += d.appareils.length ? '<table class="data-table"><thead><tr><th>Utilisateur</th><th>Appareil</th><th>Version</th><th>Jeton push</th><th>Dernière activité</th></tr></thead><tbody>' +
+                d.appareils.map(a => '<tr><td>' + esc(a.utilisateur) + '</td><td>' + esc(a.nom || a.plateforme) + '</td><td>' + esc(a.version_app || '') + '</td><td>' + pastille(a.jeton_push, a.jeton_push ? 'oui' : 'non') + '</td><td>' + heure(a.derniere_activite) + '</td></tr>').join('') + '</tbody></table>'
+                : '<p class="field-hint">Aucun appareil.</p>';
+            $('#diag-contenu').html(h);
+        }).fail(xhr => $('#diag-contenu').text(messageErreur(xhr)));
+    }
+    $('.sidebar-menu a[href="#parametres"]').on('click', chargerDiagnostic);
+    $('#diag-actualiser').on('click', chargerDiagnostic);
+    $('#diag-push-test').on('click', function () {
+        const $b = $(this).prop('disabled', true);
+        $('#diag-resultat').text('Test en cours…');
+        v1('POST', 'diagnostic/push-test', {}).done(function (r) {
+            $('#diag-resultat').html(r.data.etapes.map(e => pastille(e.ok, e.nom + ' (' + e.duree_ms + ' ms)') + (e.detail ? ' — ' + esc(e.detail) : '')).join('<br>'));
+        }).fail(xhr => $('#diag-resultat').text(messageErreur(xhr))).always(() => { $b.prop('disabled', false); chargerDiagnostic(); });
+    });
+    $('#diag-traiter').on('click', function () {
+        const $b = $(this).prop('disabled', true);
+        $('#diag-resultat').text('Traitement en cours…');
+        v1('POST', 'diagnostic/notifications/traiter', {}).done(function (r) {
+            $('#diag-resultat').text(r.data.notifications_creees + ' notification(s) créée(s), ' + r.data.envois_reussis + ' envoi(s) réussi(s), ' + r.data.abandons + ' abandon(s).');
+        }).fail(xhr => $('#diag-resultat').text(messageErreur(xhr))).always(() => { $b.prop('disabled', false); chargerDiagnostic(); });
+    });
+
     // Import du fichier JSON du compte de service : lu dans le navigateur, enregistré avec le formulaire.
     $('#fcm_parcourir').on('click', () => $('#fcm_fichier').trigger('click'));
     $('#fcm_fichier').on('change', function () {
