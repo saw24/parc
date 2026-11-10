@@ -1,6 +1,7 @@
 package org.parcit.mobile.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -44,11 +45,12 @@ fun Root(vm: AppViewModel) {
     LaunchedEffect(vm.message) { vm.message?.let { snack.showSnackbar(it); vm.messageLu() } }
     val u = vm.utilisateur
     val barre = u != null && vm.ecran.principal
+    FondVerre(Modifier.fillMaxSize()) {
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background, contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snack) },
         bottomBar = {
-            if (u != null && vm.ecran.principal) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+            if (u != null && vm.ecran.principal) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .72f), tonalElevation = 0.dp) {
                 @Composable fun onglet(e: Ecran, icone: ImageVector, texte: String, badge: Int = 0) = NavigationBarItem(
                     vm.ecran == e, { vm.aller(e) },
                     { BadgedBox({ if (badge > 0) Badge { Text("$badge") } }) { Icon(icone, texte) } }, label = { Text(texte) },
@@ -94,6 +96,7 @@ fun Root(vm: AppViewModel) {
             }
             if (vm.chargement) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
+    }
     }
 }
 
@@ -240,8 +243,9 @@ fun EcranListe(vm: AppViewModel) {
 
 @Composable
 private fun Stat(libelle: String, valeur: Int, couleur: Color, modifier: Modifier) = Card(
-    modifier, shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-    elevation = CardDefaults.cardElevation(if (MaterialTheme.colorScheme.background.luminance() < .5f) 0.dp else 3.dp),
+    modifier, shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .66f)),
+    border = BorderStroke(1.dp, if (MaterialTheme.colorScheme.background.luminance() < .5f) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .85f)),
+    elevation = CardDefaults.cardElevation(0.dp),
 ) {
     Column(Modifier.padding(14.dp)) {
         Text("$valeur", style = MaterialTheme.typography.headlineSmall, color = couleur)
@@ -267,8 +271,9 @@ private fun Raccourcis(vm: AppViewModel) {
                 ligne.forEachIndexed { c, (titre, icone, action) ->
                     val teinte = teintes[(r * 2 + c) % teintes.size]
                     Card(action, Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        elevation = CardDefaults.cardElevation(if (MaterialTheme.colorScheme.background.luminance() < .5f) 0.dp else 3.dp)) {
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .66f)),
+                        border = BorderStroke(1.dp, if (MaterialTheme.colorScheme.background.luminance() < .5f) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .85f)),
+                        elevation = CardDefaults.cardElevation(0.dp)) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Surface(color = teinte.copy(alpha = .14f), shape = CircleShape) {
                                 Icon(icone, null, Modifier.padding(9.dp).size(22.dp), tint = teinte)

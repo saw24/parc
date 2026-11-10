@@ -11,18 +11,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.unit.dp
 import org.parcit.mobile.AppViewModel
 import org.parcit.mobile.data.Tache
 import java.time.LocalDate
 
 /** Vue des agents du service IT : pannes à prendre, mes tâches, toutes les pannes ouvertes. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun EcranInterventions(vm: AppViewModel) {
     var q by remember { mutableStateOf(vm.recherche) }
+    var feuille by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { vm.chargerInterventions() }
-    Column(Modifier.fillMaxSize()) {
+    val actifs = (if (vm.filtre == "toutes" && vm.periode != "tout") 1 else 0) +
+        (if (vm.agentFiltre != null && (vm.filtre == "ouvertes" || vm.filtre == "toutes")) 1 else 0) + (if (!vm.recentDabord) 1 else 0)
+    Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().blur(if (feuille) 10.dp else 0.dp)) {
         EnTete("Interventions", "${vm.interventions.size} panne(s)", actions = {
             IconButton({ vm.chargerInterventions() }) { Icon(Icons.Rounded.Refresh, "Actualiser") }
         })
@@ -50,6 +55,52 @@ fun EcranInterventions(vm: AppViewModel) {
                     if (t.actions.prendre) BoutonSecondaire("Je prends", { vm.prendre(t.id) }, enabled = !vm.chargement, icone = Icons.Rounded.PanTool)
                 }) { vm.ouvrirDetail(t.id) }
             }
+        }
+    }
+    FloatingActionButton({ vm.chargerAgents(); feuille = true }, Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = .92f), contentColor = MaterialTheme.colorScheme.onPrimary) {
+        BadgedBox({ if (actifs > 0) Badge { Text("$actifs") } }) { Icon(Icons.Rounded.FilterList, "Filtres") }
+    }
+    if (feuille) FeuilleFiltres(vm) { feuille = false }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun FeuilleFiltres(vm: AppViewModel, fermer: () -> Unit) {
+    var periode by remember { mutableStateOf(vm.periode) }
+    var agent by remember { mutableStateOf(vm.agentFiltre) }
+    var recent by remember { mutableStateOf(vm.recentDabord) }
+    val toutes = vm.filtre == "toutes"
+    val parAgent = vm.filtre == "ouvertes" || toutes
+    ModalBottomSheet(fermer, containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .97f), scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = .25f)) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Filtres", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                TextButton({ periode = "semaine"; agent = null; recent = true }) { Text("Réinitialiser") }
+            }
+            if (toutes) {
+                Text("Période", style = MaterialTheme.typography.titleSmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("jour" to "Aujourd'hui", "semaine" to "Cette semaine", "mois" to "Ce mois", "tout" to "Tout").forEach { (k, l) ->
+                        FilterChip(periode == k, { periode = k }, { Text(l) })
+                    }
+                }
+            }
+            if (parAgent) {
+                Text("Pris en charge par", style = MaterialTheme.typography.titleSmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(agent == null, { agent = null }, { Text("Tous") })
+                    vm.agents.filter { !it.fileCommune }.forEach { a -> FilterChip(agent == a.id, { agent = a.id }, { Text(a.nom) }) }
+                }
+            }
+            Text("Trier par", style = MaterialTheme.typography.titleSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(recent, { recent = true }, { Text("Plus récent") })
+                FilterChip(!recent, { recent = false }, { Text("Plus ancien") })
+            }
+            if (!toutes) Text("La période s'applique à la vue « Toutes ».", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            BoutonPrincipal("Appliquer", { vm.appliquerFiltres(periode, agent, recent); fermer() })
         }
     }
 }

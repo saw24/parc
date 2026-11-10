@@ -110,16 +110,26 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     }
 
     /** filtre : "file" (à prendre), "moi" (mes tâches ouvertes), "ouvertes" ou "toutes" (tous statuts). */
-    suspend fun interventions(filtre: String, q: String): List<Tache> {
+    /** [periode] (jour, semaine, mois, tout) ne s'applique qu'à « toutes » ; [agentId] à « ouvertes » et « toutes ». */
+    suspend fun interventions(filtre: String, q: String, periode: String = "tout", agentId: Int? = null, recentDabord: Boolean = true): List<Tache> {
         val p = mutableMapOf<String, String>()
         when (filtre) {
             "file" -> { p["assigne"] = "file"; p["ouvertes"] = "1" }
             "moi" -> { p["assigne"] = "moi"; p["ouvertes"] = "1" }
-            "ouvertes" -> p["ouvertes"] = "1"
-            // « toutes » : tous les statuts, y compris terminées et annulées
+            "ouvertes" -> { p["ouvertes"] = "1"; if (agentId != null) p["assigne"] = "$agentId" }
+            else -> {   // « toutes » : tous les statuts, y compris terminées et annulées
+                if (agentId != null) p["assigne"] = "$agentId"
+                val aujourdhui = java.time.LocalDate.now()
+                when (periode) {
+                    "jour" -> p["depuis"] = aujourdhui.toString()
+                    "semaine" -> p["depuis"] = aujourdhui.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)).toString()
+                    "mois" -> p["depuis"] = aujourdhui.withDayOfMonth(1).toString()
+                }
+            }
         }
         if (q.isNotBlank()) p["q"] = q.trim()
-        return pages("taches", p, max = 1000)
+        val liste: List<Tache> = pages("taches", p, max = 1000)
+        return if (recentDabord) liste else liste.reversed()
     }
 
     suspend fun agents(): List<Agent> = api.get("agents").data()

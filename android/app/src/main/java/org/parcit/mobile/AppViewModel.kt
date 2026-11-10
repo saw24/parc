@@ -53,6 +53,9 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     // Vue agent IT
     var filtre by mutableStateOf("file")
+    var periode by mutableStateOf("semaine")        // jour | semaine | mois | tout (vue « Toutes » seulement)
+    var agentFiltre by mutableStateOf<Int?>(null)    // « pris en charge par »
+    var recentDabord by mutableStateOf(true)
     var recherche by mutableStateOf("")
     var interventions by mutableStateOf<List<Tache>>(emptyList())
     var agents by mutableStateOf<List<Agent>>(emptyList())
@@ -211,7 +214,8 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     }
 
     // ------------------------------------------------------------------ Interventions
-    fun chargerInterventions() = lancer(chargeur = interventions.isEmpty()) { interventions = repo.interventions(filtre, recherche) }
+    fun chargerInterventions() = lancer(chargeur = interventions.isEmpty()) { interventions = repo.interventions(filtre, recherche, periode, agentFiltre, recentDabord) }
+    fun appliquerFiltres(periode: String, agent: Int?, recent: Boolean) { this.periode = periode; agentFiltre = agent; recentDabord = recent; chargerInterventions() }
     fun choisirFiltre(f: String) { filtre = f; chargerInterventions() }
     fun rechercherInterventions(q: String) { recherche = q; chargerInterventions() }
 

@@ -243,6 +243,14 @@ try {
     $r = api('GET', 'agents', null, $A('tech'));
     check('liste des agents : file commune en tête + charge', $r[0] === 200 && $r[1]['data'][0]['file_commune'] === true && count($r[1]['data']) >= 3);
     check('agents : interdit à l\'agent', api('GET', 'agents', null, $A('agent'))[0] === 403);
+    $aujourdhui = date('Y-m-d'); $demain = date('Y-m-d', strtotime('+1 day')); $hier = date('Y-m-d', strtotime('-1 day'));
+    $r = api('GET', 'taches?depuis=' . $aujourdhui, null, $A('tech'));
+    check('période : depuis aujourd\'hui contient les pannes du jour', $r[0] === 200 && count($r[1]['data']) >= 1);
+    $r = api('GET', 'taches?depuis=' . $demain, null, $A('tech'));
+    check('période : depuis demain → vide', $r[0] === 200 && count($r[1]['data']) === 0);
+    $r = api('GET', 'taches?jusqu_a=' . $hier, null, $A('tech'));
+    check('période : jusqu\'à hier exclut les pannes du jour', $r[0] === 200 && !array_filter($r[1]['data'], fn($t) => str_starts_with((string) ($t['updated_at'] ?? ''), $aujourdhui)));
+    check('période : date invalide → 422', api('GET', 'taches?depuis=hier', null, $A('tech'))[0] === 422);
     $r = api('GET', 'accueil', null, $A('agent'));
     check('accueil agent : mes pannes ouvertes', $r[0] === 200 && $r[1]['data']['mes_pannes_ouvertes'] === 1 && $r[1]['data']['en_file'] === 0, json_encode($r[1]['data'] ?? null));
     $r = api('GET', 'accueil', null, $A('tech'));

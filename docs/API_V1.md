@@ -61,7 +61,7 @@ Le **site web** appelle aussi la v1 : les en-têtes `X-Session-Token` + `X-User-
 | `DELETE taches/{id}` | `tache.supprimer` | |
 | `GET agents` | `tache.affecter` | agents IT + file « Service IT », avec leur charge |
 | `GET accueil` | accès aux pannes | compteurs : mes pannes ouvertes, mes assignées, file, retards SLA, relances dues |
-| `GET taches` | `tache.voir_toutes` ou `tache.voir_siennes` | filtres : `statut=A,B` · `ouvertes=1` · `assigne=moi\|file\|<id>` · `declarant=moi` · `materiel_id` · `q` · `updated_since` · `ids_only=1` |
+| `GET taches` | `tache.voir_toutes` ou `tache.voir_siennes` | filtres : `statut=A,B` · `ouvertes=1` · `assigne=moi\|file\|<id>` · `declarant=moi` · `materiel_id` · `q` · `depuis=AAAA-MM-JJ` · `jusqu_a=AAAA-MM-JJ` (période, sur la date de dernière modification, bornes incluses) · `updated_since` · `ids_only=1` ; tri : plus récent d'abord |
 | `GET taches/{id}` | idem (404 si invisible) | inclut `evenements[]` (historique) ; les notes internes sont masquées au déclarant |
 | `POST taches` | `tache.declarer` ou `tache.creer` | `{titre*, description, priorite, service_id, materiel_id, motif_cause, client_uuid}` ; `assigne_id`, `date_limite` réservés à `tache.creer`. Sans `assigne_id` : file « Service IT ». `201` (créée) ou `200` + `meta.deja_existante` (rejeu du même `client_uuid`) |
 | `POST taches/{id}/prendre` | `tache.prendre` | atomique : un seul agent gagne, les autres reçoivent `409` avec le nom du preneur |

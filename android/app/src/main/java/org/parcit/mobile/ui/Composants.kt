@@ -16,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.shadow
@@ -77,13 +79,30 @@ fun Puce(texte: String, couleur: Color, modifier: Modifier = Modifier, icone: Im
 
 @Composable
 fun Carte(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, couleur: Color = MaterialTheme.colorScheme.surfaceContainer, contenu: @Composable ColumnScope.() -> Unit) {
+    // Effet « verre » : surface translucide, liseré lumineux, ombre très douce — le fond dégradé transparaît.
     val sombre = MaterialTheme.colorScheme.background.luminance() < .5f
-    val bordure = if (sombre) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
-    val relief = CardDefaults.cardElevation(defaultElevation = if (sombre) 0.dp else 3.dp)
+    val verre = couleur.copy(alpha = if (couleur.alpha < 1f) couleur.alpha else if (sombre) .62f else .66f)
+    val bordure = BorderStroke(1.dp, if (sombre) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .85f))
+    val relief = CardDefaults.cardElevation(defaultElevation = 0.dp)
     if (onClick != null) Card(onClick, modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = couleur), elevation = relief, border = bordure, content = contenu)
+        colors = CardDefaults.cardColors(containerColor = verre), elevation = relief, border = bordure, content = contenu)
     else Card(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = couleur), elevation = relief, border = bordure, content = contenu)
+        colors = CardDefaults.cardColors(containerColor = verre), elevation = relief, border = bordure, content = contenu)
+}
+
+/** Fond de l'application : dégradé doux et deux halos colorés, que les surfaces translucides laissent voir. */
+@Composable
+fun FondVerre(modifier: Modifier = Modifier, contenu: @Composable BoxScope.() -> Unit) {
+    val sombre = MaterialTheme.colorScheme.background.luminance() < .5f
+    val (haut, bas) = if (sombre) Color(0xFF0B1220) to Color(0xFF111C33) else Color(0xFFEFF3FB) to Color(0xFFE4ECFA)
+    val halo1 = if (sombre) Color(0x332563EB) else Color(0x402563EB)
+    val halo2 = if (sombre) Color(0x2A7C3AED) else Color(0x30A78BFA)
+    Box(modifier.background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(haut, bas))).drawBehind {
+        drawCircle(androidx.compose.ui.graphics.Brush.radialGradient(listOf(halo1, Color.Transparent), center = Offset(size.width * .95f, size.height * .12f), radius = size.width * .8f),
+            radius = size.width * .8f, center = Offset(size.width * .95f, size.height * .12f))
+        drawCircle(androidx.compose.ui.graphics.Brush.radialGradient(listOf(halo2, Color.Transparent), center = Offset(size.width * .05f, size.height * .78f), radius = size.width * .9f),
+            radius = size.width * .9f, center = Offset(size.width * .05f, size.height * .78f))
+    }, content = contenu)
 }
 
 /** En-tête de page : bouton retour facultatif, titre, actions à droite. */
@@ -91,7 +110,7 @@ fun Carte(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, couleur:
 fun EnTete(titre: String, sousTitre: String? = null, retour: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
     val sombre = MaterialTheme.colorScheme.background.luminance() < .5f
     Surface(
-        color = if (sombre) Color(0xFF16233D) else Color(0xFF0F1B33), contentColor = Color.White,
+        color = if (sombre) Color(0xE616233D) else Color(0xEB0F1B33), contentColor = Color.White,
         shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
