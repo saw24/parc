@@ -38,6 +38,22 @@ class ApiClient(private val store: SecureStore) {
     suspend fun patch(path: String, body: JsonObject) = call("PATCH", path, body, emptyMap(), true)
     suspend fun delete(path: String) = call("DELETE", path, null, emptyMap(), true)
 
+    /** Vérifie qu'un serveur Parc IT répond à cette adresse (sans session) : renvoie un message lisible. */
+    suspend fun tester(adresse: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val base = adresse.trim().trimEnd('/')
+        val url = try { "$base/backend/api/v1/index.php/auth/login".toHttpUrl() } catch (e: IllegalArgumentException) {
+            return@withContext false to "Adresse invalide."
+        }
+        val client = http.newBuilder().connectTimeout(6, TimeUnit.SECONDS).readTimeout(6, TimeUnit.SECONDS).build()
+        val req = Request.Builder().url(url).header("Accept", "application/json").post("{}".toRequestBody(json)).build()
+        try {
+            client.newCall(req).execute().use {
+                val ok = try { Json.parseToJsonElement(it.body?.string() ?: "").jsonObject; true } catch (e: Exception) { false }
+                if (ok) true to "Serveur disponible." else false to "Une réponse a été reçue mais ce n'est pas un serveur Parc IT (${it.code})."
+            }
+        } catch (e: IOException) { false to "Serveur injoignable. Vérifiez l'adresse et la connexion." }
+    }
+
     /** Renvoie l'enveloppe complète {data, meta}. */
     suspend fun call(
         method: String, path: String, body: JsonObject?, query: Map<String, String>, auth: Boolean,

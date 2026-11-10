@@ -2,6 +2,9 @@ package org.parcit.mobile.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -99,7 +102,11 @@ fun Root(vm: AppViewModel) {
 @Composable
 fun EcranConnexion(vm: AppViewModel) {
     var serveur by remember { mutableStateOf(vm.serveur) }
-    var serveurOuvert by remember { mutableStateOf(vm.serveur == BuildConfig.DEFAULT_SERVER) }
+    var serveurOuvert by remember { mutableStateOf(false) }
+    var touches by remember { mutableIntStateOf(0) }
+    var test by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var enTest by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     var login by remember { mutableStateOf("") }
     var mdp by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
@@ -110,7 +117,11 @@ fun EcranConnexion(vm: AppViewModel) {
         verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(32.dp))
-        Surface(color = Color.White.copy(alpha = .14f), shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.size(84.dp)) {
+        Surface(color = Color.White.copy(alpha = .14f), shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.size(84.dp)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                touches++
+                if (touches >= 7) { touches = 0; serveurOuvert = !serveurOuvert }
+            }) {
             Icon(Icons.Rounded.Computer, null, Modifier.padding(22.dp), tint = Color.White)
         }
         Spacer(Modifier.height(20.dp))
@@ -131,9 +142,14 @@ fun EcranConnexion(vm: AppViewModel) {
             )
             if (serveurOuvert) Champ(serveur, { serveur = it }, "Adresse du serveur", icone = Icons.Rounded.Language)
             BoutonPrincipal("Se connecter", { vm.connecter(serveur, login, mdp) }, enabled = pret)
-            TextButton({ serveurOuvert = !serveurOuvert }, Modifier.align(Alignment.CenterHorizontally)) {
-                Text(if (serveurOuvert) "Masquer le serveur" else "Serveur : ${serveur.removePrefix("https://").removePrefix("http://")}")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (serveurOuvert) "Mode édition de l'adresse" else "Serveur : ${serveur.removePrefix("https://").removePrefix("http://")}",
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                TextButton({ enTest = true; test = null; scope.launch { test = vm.testerServeur(serveur); enTest = false } }, enabled = !enTest && serveur.isNotBlank()) {
+                    if (enTest) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Text("Tester")
+                }
             }
+            test?.let { (ok, msg) -> Text(msg, style = MaterialTheme.typography.bodySmall, color = if (ok) Color(0xFF15803D) else MaterialTheme.colorScheme.error) }
         }
         }
         Spacer(Modifier.height(24.dp))
@@ -447,34 +463,11 @@ fun iconeNotification(type: String): ImageVector = when (type) {
 
 @Composable
 fun EcranNotifications(vm: AppViewModel) {
-    val prefs = vm.utilisateur?.notifications
     Column(Modifier.fillMaxSize()) {
         EnTete("Alertes", if (vm.nonLues > 0) "${vm.nonLues} non lue(s)" else "Tout est à jour", actions = {
             if (vm.nonLues > 0) TextButton({ vm.toutMarquerLu() }) { Text("Tout lire") }
         })
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (prefs != null) item {
-                Carte {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Me prévenir aussi par", style = MaterialTheme.typography.titleSmall)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Switch(prefs.email, { vm.preferences(it, prefs.sms) }); Spacer(Modifier.width(8.dp)); Text("E-mail")
-                            Spacer(Modifier.width(24.dp))
-                            Switch(prefs.sms, { vm.preferences(prefs.email, it) }); Spacer(Modifier.width(8.dp)); Text("SMS")
-                        }
-                        Text("Les alertes dans l'application restent toujours actives.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-            item {
-                Carte {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(Icons.Rounded.DarkMode, null)
-                        Text("Thème sombre", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                        Switch(vm.sombre, { vm.basculerTheme() })
-                    }
-                }
-            }
             if (vm.notifications.isEmpty()) item { EtatVide(Icons.Rounded.Notifications, "Aucune alerte", "Vous serez prévenu ici de chaque évolution de vos pannes.") }
             items(vm.notifications, key = { it.id }) { n ->
                 Carte(onClick = { vm.ouvrirNotification(n) }, couleur = if (n.lue) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f)) {

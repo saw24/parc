@@ -147,6 +147,8 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
         }
     }
 
+    suspend fun testerServeur(adresse: String): Pair<Boolean, String> = app.api.tester(adresse)
+
     fun connecter(serveur: String, login: String, mdp: String) = lancer {
         utilisateur = repo.login(serveur, login.trim(), mdp)
         Alertes.planifierScrutation(app)
