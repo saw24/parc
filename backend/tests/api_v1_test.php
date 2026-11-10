@@ -402,6 +402,10 @@ try {
         && !isset($r[1]['data']['sms_jeton']) && !str_contains($r[3], 'secret-123'));
     check('jeton vide = conservé', api('PATCH', 'parametres', ['sms_jeton' => '', 'sms_expediteur' => 'ParcIT'], $A('admin'))[1]['data']['sms_jeton_configure'] === true);
     check('paramètre inconnu → 422', api('PATCH', 'parametres', ['nimporte' => 'x'], $A('admin'))[0] === 422);
+    check('compte de service FCM invalide → 422', api('PATCH', 'parametres', ['fcm_compte_service' => '{"a":1}'], $A('admin'))[0] === 422);
+    $r = api('PATCH', 'parametres', ['fcm_compte_service' => json_encode(['private_key' => 'k', 'client_email' => 'x@y.iam', 'project_id' => 'zz-p'])], $A('admin'));
+    check('compte de service FCM valide : enregistré, jamais renvoyé', $r[0] === 200 && $r[1]['data']['fcm_compte_service_configure'] === true && !isset($r[1]['data']['fcm_compte_service']));
+    api('PATCH', 'parametres', ['fcm_compte_service' => null], $A('admin'));
     $r = api('PATCH', 'parametres', ['sms_actif' => false, 'sms_url' => '', 'sms_jeton' => null], $A('admin'));
     check('paramètres remis à zéro', $r[0] === 200 && $r[1]['data']['sms_jeton_configure'] === false);
 

@@ -320,7 +320,10 @@ function notif_fcm_access_token(array $params): string
     if ($cache['jeton'] && $cache['expire'] > time() + 60) {
         return $cache['jeton'];
     }
-    $sa = json_decode((string) @file_get_contents($params['fcm_compte_service']), true);
+    // Le compte de service est stocké en base (contenu JSON collé ou importé depuis l'écran Paramètres) ;
+    // un chemin de fichier reste accepté pour les installations existantes.
+    $brut = trim((string) $params['fcm_compte_service']);
+    $sa = json_decode($brut !== '' && $brut[0] === '{' ? $brut : (string) @file_get_contents($brut), true);
     if (!is_array($sa) || empty($sa['private_key']) || empty($sa['client_email'])) {
         throw new RuntimeException('Fichier de compte de service FCM illisible.');
     }

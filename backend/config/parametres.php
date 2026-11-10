@@ -68,7 +68,7 @@ function get_default_parametres(): array
         'sms_jeton'       => '',       // envoyé en « Authorization: Bearer … » si renseigné
         'sms_expediteur'  => 'ParcIT',
         'sms_corps'       => '{"to":"{to}","from":"{from}","message":"{message}"}',
-        // Push FCM (HTTP v1) : identifiant du projet Firebase + chemin du fichier JSON du compte de service.
+        // Push FCM (HTTP v1) : identifiant du projet Firebase + contenu JSON du compte de service (ou chemin du fichier).
         'fcm_actif'       => '0',
         'fcm_projet'      => '',
         'fcm_compte_service' => '',

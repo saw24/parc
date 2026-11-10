@@ -96,6 +96,27 @@ $(function () {
     }
     $('.sidebar-menu a[href="#parametres"]').on('click', chargerNotifParametres);
 
+    // Import du fichier JSON du compte de service : lu dans le navigateur, enregistré avec le formulaire.
+    $('#fcm_parcourir').on('click', () => $('#fcm_fichier').trigger('click'));
+    $('#fcm_fichier').on('change', function () {
+        const fichier = this.files && this.files[0];
+        if (!fichier) return;
+        const lecteur = new FileReader();
+        lecteur.onload = function () {
+            let json;
+            try { json = JSON.parse(String(lecteur.result)); } catch (e) { json = null; }
+            if (!json || !json.private_key || !json.client_email) {
+                $('#fcm_fichier_nom').text('Fichier invalide : ce n\'est pas un compte de service Firebase.');
+                $('#fcm_fichier').val('');
+                return;
+            }
+            $('#fcm_compte_service').val(JSON.stringify(json));
+            if (json.project_id && !$('#fcm_projet').val().trim()) $('#fcm_projet').val(json.project_id);
+            $('#fcm_fichier_nom').text(fichier.name + ' chargé — cliquez sur Enregistrer.');
+        };
+        lecteur.readAsText(fichier);
+    });
+
     $('#parametres-notif-form').on('submit', function (e) {
         e.preventDefault();
         const corps = {};

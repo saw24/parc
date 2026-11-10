@@ -433,6 +433,12 @@ route('PATCH', 'parametres', function (array $c): void {
             if ($val === '') { continue; }
             $val = $val === null ? '' : $val;
         }
+        if ($cle === 'fcm_compte_service' && is_string($val) && trim($val) !== '' && trim($val)[0] === '{') {
+            $sa = json_decode($val, true);
+            if (!is_array($sa) || empty($sa['private_key']) || empty($sa['client_email'])) {
+                api_fail(422, 'champ_invalide', 'Fichier de compte de service invalide : il doit contenir private_key et client_email.', ['champ' => $cle]);
+            }
+        }
         if (is_bool($val)) { $val = $val ? '1' : '0'; }
         if (!is_scalar($val)) {
             api_fail(422, 'champ_invalide', "Valeur invalide pour $cle", ['champ' => $cle]);
