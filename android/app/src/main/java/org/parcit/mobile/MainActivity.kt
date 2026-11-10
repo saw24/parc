@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(vm.sombre) {
                 val transparent = android.graphics.Color.TRANSPARENT
                 enableEdgeToEdge(
-                    statusBarStyle = if (vm.sombre) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
+                    statusBarStyle = SystemBarStyle.dark(transparent),
                     navigationBarStyle = if (vm.sombre) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
                 )
             }

@@ -17,6 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,23 +77,34 @@ fun Puce(texte: String, couleur: Color, modifier: Modifier = Modifier, icone: Im
 
 @Composable
 fun Carte(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, couleur: Color = MaterialTheme.colorScheme.surfaceContainer, contenu: @Composable ColumnScope.() -> Unit) {
-    val bordure = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    val sombre = MaterialTheme.colorScheme.background.luminance() < .5f
+    val bordure = if (sombre) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
+    val relief = CardDefaults.cardElevation(defaultElevation = if (sombre) 0.dp else 3.dp)
     if (onClick != null) Card(onClick, modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = couleur), border = bordure, content = contenu)
+        colors = CardDefaults.cardColors(containerColor = couleur), elevation = relief, border = bordure, content = contenu)
     else Card(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = couleur), border = bordure, content = contenu)
+        colors = CardDefaults.cardColors(containerColor = couleur), elevation = relief, border = bordure, content = contenu)
 }
 
 /** En-tête de page : bouton retour facultatif, titre, actions à droite. */
 @Composable
 fun EnTete(titre: String, sousTitre: String? = null, retour: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().padding(start = if (retour != null) 4.dp else 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (retour != null) IconButton(retour) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
-        Column(Modifier.weight(1f).padding(start = if (retour != null) 4.dp else 0.dp)) {
-            Text(titre, style = if (retour != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (sousTitre != null) Text(sousTitre, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val sombre = MaterialTheme.colorScheme.background.luminance() < .5f
+    Surface(
+        color = if (sombre) Color(0xFF16233D) else Color(0xFF0F1B33), contentColor = Color.White,
+        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(start = if (retour != null) 4.dp else 20.dp, end = 8.dp, top = 10.dp, bottom = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (retour != null) IconButton(retour) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") }
+            Column(Modifier.weight(1f).padding(start = if (retour != null) 4.dp else 0.dp)) {
+                Text(titre, style = if (retour != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (sousTitre != null) Text(sousTitre, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .72f))
+            }
+            actions()
         }
-        actions()
     }
 }
 

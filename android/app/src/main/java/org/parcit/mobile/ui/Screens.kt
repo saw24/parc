@@ -19,7 +19,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -38,15 +40,16 @@ fun Root(vm: AppViewModel) {
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(vm.message) { vm.message?.let { snack.showSnackbar(it); vm.messageLu() } }
     val u = vm.utilisateur
+    val barre = u != null && vm.ecran.principal
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.background, contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snack) },
         bottomBar = {
             if (u != null && vm.ecran.principal) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                 @Composable fun onglet(e: Ecran, icone: ImageVector, texte: String, badge: Int = 0) = NavigationBarItem(
                     vm.ecran == e, { vm.aller(e) },
                     { BadgedBox({ if (badge > 0) Badge { Text("$badge") } }) { Icon(icone, texte) } }, label = { Text(texte) },
-                    colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer),
+                    colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primary, selectedIconColor = MaterialTheme.colorScheme.onPrimary, selectedTextColor = MaterialTheme.colorScheme.primary),
                 )
                 onglet(Ecran.Liste, Icons.Rounded.Build, "Mes pannes")
                 if (u.voitInterventions) onglet(Ecran.Interventions, Icons.AutoMirrored.Rounded.Assignment, "Interventions")
@@ -55,7 +58,7 @@ fun Root(vm: AppViewModel) {
             }
         },
     ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        Box(Modifier.padding(pad).then(if (barre) Modifier else Modifier.navigationBarsPadding()).fillMaxSize()) {
             if (u == null) EcranConnexion(vm)
             else when (val e = vm.ecran) {
                 Ecran.Liste -> EcranListe(vm)
@@ -101,23 +104,21 @@ fun EcranConnexion(vm: AppViewModel) {
     var mdp by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     val pret = !vm.chargement && login.isNotBlank() && mdp.isNotBlank() && serveur.isNotBlank()
-    Box(Modifier.fillMaxSize()) {
-    IconButton({ vm.basculerTheme() }, Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-        Icon(if (vm.sombre) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, if (vm.sombre) "Thème clair" else "Thème sombre")
-    }
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0F1B33), Color(0xFF1D4ED8))))) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).imePadding(),
+        Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).imePadding(),
         verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(32.dp))
-        Surface(color = MaterialTheme.colorScheme.primary, shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.size(84.dp)) {
-            Icon(Icons.Rounded.Computer, null, Modifier.padding(22.dp), tint = MaterialTheme.colorScheme.onPrimary)
+        Surface(color = Color.White.copy(alpha = .14f), shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.size(84.dp)) {
+            Icon(Icons.Rounded.Computer, null, Modifier.padding(22.dp), tint = Color.White)
         }
         Spacer(Modifier.height(20.dp))
-        Text("Parc IT", style = MaterialTheme.typography.headlineMedium)
-        Text("Déclarez et suivez vos pannes", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(32.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Parc IT", style = MaterialTheme.typography.headlineMedium, color = Color.White)
+        Text("Déclarez et suivez vos pannes", style = MaterialTheme.typography.bodyLarge, color = Color.White.copy(alpha = .75f))
+        Spacer(Modifier.height(28.dp))
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, shadowElevation = 8.dp) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Champ(login, { login = it }, "Identifiant", icone = Icons.Rounded.Person)
             OutlinedTextField(
                 mdp, { mdp = it }, Modifier.fillMaxWidth(), label = { Text("Mot de passe") }, singleLine = true, shape = MaterialTheme.shapes.medium,
@@ -133,6 +134,7 @@ fun EcranConnexion(vm: AppViewModel) {
             TextButton({ serveurOuvert = !serveurOuvert }, Modifier.align(Alignment.CenterHorizontally)) {
                 Text(if (serveurOuvert) "Masquer le serveur" else "Serveur : ${serveur.removePrefix("https://").removePrefix("http://")}")
             }
+        }
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -176,6 +178,7 @@ fun EcranListe(vm: AppViewModel) {
             PullToRefreshBox(false, { rafraichit = true }, Modifier.weight(1f)) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     vm.miseAJour?.let { c -> item { BandeauMiseAJour(c) } }
+                    item { Raccourcis(vm) }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Stat("Ouvertes", vm.taches.count(ouvert), couleurStatutPublic("En cours"), Modifier.weight(1f))
@@ -214,17 +217,53 @@ fun EcranListe(vm: AppViewModel) {
         ExtendedFloatingActionButton(
             text = { Text("Déclarer une panne") }, icon = { Icon(Icons.Rounded.Add, null) },
             onClick = { vm.ouvrirFormulaire() }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
         )
     }
 }
 
 @Composable
-private fun Stat(libelle: String, valeur: Int, couleur: Color, modifier: Modifier) = Surface(
-    modifier, color = couleur.copy(alpha = .12f), shape = MaterialTheme.shapes.medium,
+private fun Stat(libelle: String, valeur: Int, couleur: Color, modifier: Modifier) = Card(
+    modifier, shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    elevation = CardDefaults.cardElevation(if (MaterialTheme.colorScheme.background.luminance() < .5f) 0.dp else 3.dp),
 ) {
-    Column(Modifier.padding(12.dp)) {
+    Column(Modifier.padding(14.dp)) {
         Text("$valeur", style = MaterialTheme.typography.headlineSmall, color = couleur)
         Text(libelle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Grille de raccourcis (tuiles arrondies) selon les permissions. */
+@Composable
+private fun Raccourcis(vm: AppViewModel) {
+    val u = vm.utilisateur ?: return
+    val tuiles = buildList {
+        add(Triple("Déclarer", Icons.Rounded.Add, { vm.ouvrirFormulaire() }))
+        if (u.voitInterventions) add(Triple("Interventions", Icons.AutoMirrored.Rounded.Assignment, { vm.aller(Ecran.Interventions) }))
+        if (u.voitParc) add(Triple("Parc", Icons.Rounded.Computer, { vm.aller(Ecran.Parc) }))
+        if (u.voitParc) add(Triple("Scanner", Icons.Rounded.QrCodeScanner, { vm.aller(Ecran.Scan) }))
+        add(Triple("Alertes", Icons.Rounded.Notifications, { vm.aller(Ecran.Notifications) }))
+    }
+    val teintes = listOf(Color(0xFF2563EB), Color(0xFFF97316), Color(0xFF0F766E), Color(0xFF7C3AED), Color(0xFFDC2626))
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        tuiles.chunked(2).forEachIndexed { r, ligne ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ligne.forEachIndexed { c, (titre, icone, action) ->
+                    val teinte = teintes[(r * 2 + c) % teintes.size]
+                    Card(action, Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        elevation = CardDefaults.cardElevation(if (MaterialTheme.colorScheme.background.luminance() < .5f) 0.dp else 3.dp)) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Surface(color = teinte.copy(alpha = .14f), shape = CircleShape) {
+                                Icon(icone, null, Modifier.padding(9.dp).size(22.dp), tint = teinte)
+                            }
+                            Text(titre, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                if (ligne.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
     }
 }
 
