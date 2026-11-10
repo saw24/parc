@@ -348,8 +348,13 @@ function notif_fcm_access_token(array $params): string
 function notif_http_post(string $url, string $corps, array $entetes): string
 {
     $ch = curl_init($url);
+    // La résolution DNS compte dans CONNECTTIMEOUT : sur certains serveurs elle dépasse 5 s (recherche IPv6
+    // lente) ; Google répond en IPv4, que l'on impose pour ses services (FCM / OAuth).
     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $corps, CURLOPT_HTTPHEADER => $entetes,
-        CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_TIMEOUT => 10]);
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15, CURLOPT_TIMEOUT => 25]);
+    if (str_contains($url, '.googleapis.com/')) {
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    }
     $rep = curl_exec($ch);
     $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $err = curl_error($ch);
