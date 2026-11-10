@@ -176,7 +176,7 @@ fun EcranListe(vm: AppViewModel) {
                 }
             })
             PullToRefreshBox(false, { rafraichit = true }, Modifier.weight(1f)) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     vm.miseAJour?.let { c -> item { BandeauMiseAJour(c) } }
                     item { Raccourcis(vm) }
                     item {
