@@ -538,8 +538,8 @@ route('DELETE', 'services/{id}', function (array $c): void {
 
 route('GET', 'types_materiel', function (array $c): void {
     require_permission_v1($c['user'], 'referentiel.voir');
-    api_data(array_map(fn($r) => ['id' => (int) $r['id'], 'nom' => $r['type']],
-        $c['pdo']->query("SELECT id, type FROM t_type_materiel ORDER BY type")->fetchAll()));
+    api_data(array_map(fn($r) => ['id' => (int) $r['id'], 'nom' => $r['type'], 'duree_vie_mois' => $r['duree_vie_mois'] !== null ? (int) $r['duree_vie_mois'] : null],
+        $c['pdo']->query("SELECT id, type, duree_vie_mois FROM t_type_materiel ORDER BY type")->fetchAll()));
 });
 
 route('POST', 'types_materiel', function (array $c): void {
@@ -562,6 +562,8 @@ route('PATCH', 'types_materiel/{id}', function (array $c): void {
     $pdo = $c['pdo']; $id = $c['params']['id'];
     require_permission_v1($c['user'], 'referentiel.gerer');
     $nom = api_str($c['body'], 'nom', true, 100);
+    $duree = api_int($c['body'], 'duree_vie_mois');
+    if ($duree !== null && ($duree < 6 || $duree > 240)) { api_fail(422, 'champ_invalide', 'La durée de vie doit être comprise entre 6 et 240 mois.', ['champ' => 'duree_vie_mois']); }
     $dup = $pdo->prepare("SELECT 1 FROM t_type_materiel WHERE lower(type) = lower(?) AND id <> ?");
     $dup->execute([$nom, $id]);
     if ($dup->fetchColumn()) { api_fail(409, 'nom_existant', 'Un autre type porte déjà ce nom.'); }
@@ -571,7 +573,8 @@ route('PATCH', 'types_materiel/{id}', function (array $c): void {
     if ($avant === false) { api_fail(404, 'introuvable', 'Type introuvable.'); }
     $pdo->beginTransaction();
     try {
-        $pdo->prepare("UPDATE t_type_materiel SET type = ? WHERE id = ?")->execute([$nom, $id]);
+        $pdo->prepare("UPDATE t_type_materiel SET type = ?, duree_vie_mois = CASE WHEN ? THEN ?::smallint ELSE duree_vie_mois END WHERE id = ?")
+            ->execute([$nom, array_key_exists('duree_vie_mois', $c['body']) ? 't' : 'f', $duree, $id]);
         $pdo->prepare("UPDATE t_materiel SET type = ? WHERE type = ?")->execute([$nom, $avant]);   // le matériel mémorise le nom
         $pdo->commit();
     } catch (PDOException $e) {

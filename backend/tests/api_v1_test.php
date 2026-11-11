@@ -441,6 +441,35 @@ try {
     api('DELETE', "taches/$aid", null, $A('gest'));
 
 
+    echo "Renouvellement du matériel\n";
+    $pdo->exec("INSERT INTO t_type_materiel (type, duree_vie_mois) VALUES ('ZZ_V1_RENT', 36)");
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie, date_achat) VALUES ('ZZ_V1_RENT', 'ZZ', 'En service', 'ZZ_V1_RN1', CURRENT_DATE - interval '5 years')");
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie, date_achat) VALUES ('ZZ_V1_RENT', 'ZZ', 'En service', 'ZZ_V1_RN2', CURRENT_DATE - interval '6 months')");
+    $m1 = (int) $pdo->query("SELECT id FROM t_materiel WHERE num_serie = 'ZZ_V1_RN1'")->fetchColumn();
+    $m2 = (int) $pdo->query("SELECT id FROM t_materiel WHERE num_serie = 'ZZ_V1_RN2'")->fetchColumn();
+    check('renouvellement : sans permission → 403', api('GET', 'renouvellements/suggestions', null, $A('tech'))[0] === 403);
+    $r = api('GET', 'renouvellements/suggestions', null, $A('admin'));
+    $sug = array_map(fn($x) => $x['materiel']['id'], $r[1]['data'] ?? []);
+    check('suggestion : matériel au-delà de sa durée de vie', $r[0] === 200 && in_array($m1, $sug, true));
+    check('suggestion : matériel récent absent', !in_array($m2, $sug, true));
+    check('proposition sans critère ni motif → 422', api('POST', 'renouvellements', ['materiel_id' => $m2], $A('admin'))[0] === 422);
+    $r = api('POST', 'renouvellements', ['materiel_id' => $m1, 'cout_estime' => 850], $A('admin'));
+    $rid = $r[1]['data']['id'] ?? 0;
+    check('proposition créée (origine auto, critères figés)', $r[0] === 201 && $r[1]['data']['origine'] === 'auto' && count($r[1]['data']['criteres']) >= 1);
+    check('proposition en double → 409', api('POST', 'renouvellements', ['materiel_id' => $m1], $A('admin'))[0] === 409);
+    check('matériel proposé retiré des suggestions', !in_array($m1, array_map(fn($x) => $x['materiel']['id'], api('GET', 'renouvellements/suggestions', null, $A('admin'))[1]['data']), true));
+    check('refus sans raison → 422', api('POST', "renouvellements/$rid/decision", ['decision' => 'Refusé'], $A('admin'))[0] === 422);
+    check('Proposé → Remplacé interdit → 409', api('POST', "renouvellements/$rid/decision", ['decision' => 'Remplacé'], $A('admin'))[0] === 409);
+    check('décision refusée sans permission', api('POST', "renouvellements/$rid/decision", ['decision' => 'Validé'], $A('tech'))[0] === 403);
+    foreach (['Validé', 'Commandé', 'Remplacé'] as $d) {
+        check("décision « $d »", api('POST', "renouvellements/$rid/decision", ['decision' => $d], $A('admin'))[0] === 200);
+    }
+    check('remplacé : ancien matériel retiré', $pdo->query("SELECT statut FROM t_materiel WHERE id = $m1")->fetchColumn() === 'Retiré');
+    check('liste filtrée par statut', count(api('GET', 'renouvellements?statut=Remplacé', null, $A('admin'))[1]['data'] ?? []) >= 1);
+    $pdo->exec("DELETE FROM t_renouvellements WHERE materiel_id IN ($m1, $m2)");
+    $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_RN%'");
+    $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_RENT'");
+
     echo "Pont avec la session du site web\n";
     $web = bin2hex(random_bytes(32));
     $pdo->prepare("INSERT INTO t_sessions (user_id, session_token, expiry_time) VALUES (?, ?, NOW() + interval '1 hour')")->execute([$ids['admin'], hash('sha256', $web)]);

@@ -97,3 +97,16 @@ Chaque panne porte `actions` (`prendre`, `affecter`, `changer_statut`, `rouvrir`
 | `GET diagnostic/notifications` | configuration (push/SMS/e-mail), compteurs de la file par canal et statut, 15 derniers envois (avec erreur), appareils connectés et présence d'un jeton push (jamais le jeton) |
 | `POST diagnostic/push-test` | test de bout en bout : configuration → jeton Google → push vers les appareils de l'administrateur ; renvoie `etapes[{nom, ok, duree_ms, detail}]` |
 | `POST diagnostic/notifications/traiter` | traite immédiatement les évènements et la file d'envoi (équivalent du script planifié) |
+
+## Renouvellement du matériel
+
+Permissions : `renouvellement.voir`, `renouvellement.proposer`, `renouvellement.decider`.
+
+| Route | Rôle |
+|---|---|
+| `GET renouvellements/suggestions` | Matériel à renouveler selon les règles : fin de vie du type (`t_type_materiel.duree_vie_mois`, 60 mois par défaut) ou au moins 3 pannes sur 12 mois. Triées par `score` ; `meta.regles` donne les seuils. Exclut le matériel retiré ou déjà proposé. |
+| `GET renouvellements?statut=&actives=1` | Propositions (Proposé, Validé, Refusé, Commandé, Remplacé). |
+| `POST renouvellements` | `{materiel_id, motif?, cout_estime?}` ; `motif` obligatoire si aucun critère automatique ; 409 `deja_propose` si une proposition est déjà active. |
+| `POST renouvellements/{id}/decision` | `{decision, commentaire?}` ; cycle Proposé → Validé → Commandé → Remplacé, ou Refusé (commentaire requis) ; « Remplacé » passe l'ancien matériel à « Retiré ». |
+
+`PATCH types_materiel/{id}` accepte `duree_vie_mois` (6 à 240) ; `GET types_materiel` le renvoie.
