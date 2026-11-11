@@ -132,3 +132,10 @@ import kotlinx.serialization.Serializable
     @SerialName("propose_par") val proposePar: String? = null, @SerialName("decide_par") val decidePar: String? = null,
     val commentaire: String? = null,
 )
+
+// ------------------------------------------------------------------ Planning
+@Serializable data class TacheRefPlanning(val id: Int, val reference: String? = null, val statut: String = "", val priorite: String = "")
+@Serializable data class EvenementPlanning(
+    val date: String, val type: String, val titre: String, val detail: String? = null, val assigne: String? = null,
+    val retard: Boolean = false, val tache: TacheRefPlanning? = null,
+)

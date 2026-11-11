@@ -1323,3 +1323,18 @@ tbody tr:hover {
     opacity: 0;
   }
 }
+
+/* ---- Planning (calendrier) ---- */
+.plan-grille { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.plan-entete { font-weight: 600; text-align: center; padding: 6px 0; font-size: .85rem; opacity: .7; }
+.plan-case { min-height: 92px; padding: 4px 6px; border: 1px solid rgba(128, 140, 165, .35); border-radius: 8px; cursor: pointer; overflow: hidden; }
+.plan-case.hors-mois { opacity: .4; }
+.plan-case.aujourdhui { border: 2px solid #2563eb; }
+.plan-case.choisie { background: rgba(37, 99, 235, .12); }
+.plan-num { font-size: .8rem; font-weight: 600; }
+.plan-item { display: block; font-size: .72rem; line-height: 1.25; margin-top: 2px; padding: 1px 4px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+.plan-pastille { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 12px; }
+.plan-echeance { background: #2563eb; } .plan-preventif { background: #0d9488; } .plan-plan { background: #7c3aed; }
+.plan-relance { background: #d97706; } .plan-garantie { background: #64748b; }
+.plan-item.retard { background: #dc2626; }
+@media (max-width: 768px) { .plan-case { min-height: 60px; } .plan-item { display: none; } .plan-case[data-n]::after { content: attr(data-n); font-size: .75rem; color: #2563eb; font-weight: 700; } }

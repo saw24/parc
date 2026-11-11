@@ -28,6 +28,7 @@ sealed interface Ecran {
     data object Services : Ecran
     data object Sync : Ecran
     data object Renouvellement : Ecran
+    data object Semaine : Ecran
 }
 
 /** Écrans principaux (barre du bas) : on y revient avec « Retour ». */
@@ -219,7 +220,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
         }
     }
 
-    fun ouvrirDetail(id: Int) { if (ecran.principal) origine = ecran; ecran = Ecran.Detail(id); detail = taches.firstOrNull { it.id == id }
+    fun ouvrirDetail(id: Int) { if (ecran.principal || ecran == Ecran.Semaine) origine = ecran; ecran = Ecran.Detail(id); detail = taches.firstOrNull { it.id == id }
         lancer(chargeur = detail == null) { detail = repo.tache(id) } }
 
     fun ouvrirFormulaire(prefill: Materiel? = null) {
@@ -237,7 +238,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
             e is Ecran.UtilisateurForm -> Ecran.Utilisateurs
             e is Ecran.MaterielForm && e.id != null -> Ecran.MaterielDetail(e.id)
             e is Ecran.Scan || e is Ecran.MaterielForm || e is Ecran.MaterielDetail -> Ecran.Parc
-            e is Ecran.Detail || e is Ecran.Declarer || e is Ecran.Sync || e is Ecran.Renouvellement -> origine
+            e is Ecran.Detail || e is Ecran.Declarer || e is Ecran.Sync || e is Ecran.Renouvellement || e is Ecran.Semaine -> origine
             else -> Ecran.Liste
         }
         recharger()
@@ -246,7 +247,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     private fun recharger() {
         when (ecran) {
             Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser()
-            Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); else -> {}
+            Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); Ecran.Semaine -> chargerSemaine(); else -> {}
         }
     }
 
@@ -254,9 +255,9 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun estEquipe(t: Tache) = utilisateur?.voitInterventions == true || t.actions.changerStatut || t.actions.affecter
 
     fun aller(e: Ecran) {
-        if (e == Ecran.Sync || e == Ecran.Renouvellement) origine = if (ecran.principal) ecran else Ecran.Liste
+        if (e == Ecran.Sync || e == Ecran.Renouvellement || e == Ecran.Semaine) origine = if (ecran.principal) ecran else Ecran.Liste
         ecran = e; detail = null
-        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); else -> {} }
+        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); Ecran.Semaine -> chargerSemaine(); else -> {} }
     }
 
     // ------------------------------------------------------------------ Interventions
@@ -277,6 +278,16 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     fun commenterEquipe(texte: String, visibleDeclarant: Boolean) { val t = detail ?: return
         majDetail { repo.commenterEquipe(t.id, texte, visibleDeclarant) } }
+
+    // ------------------------------------------------------------------ Ma semaine (planning)
+    var debutSemaine by mutableStateOf(java.time.LocalDate.now().with(java.time.DayOfWeek.MONDAY))
+    var semaineMoi by mutableStateOf(true)
+    var evenementsSemaine by mutableStateOf<List<EvenementPlanning>>(emptyList())
+    fun chargerSemaine() = lancer(chargeur = evenementsSemaine.isEmpty()) {
+        evenementsSemaine = repo.planning(debutSemaine.toString(), debutSemaine.plusDays(6).toString(), semaineMoi || utilisateur?.voitInterventions != true)
+    }
+    fun changerSemaine(decalage: Long) { debutSemaine = if (decalage == 0L) java.time.LocalDate.now().with(java.time.DayOfWeek.MONDAY) else debutSemaine.plusWeeks(decalage); chargerSemaine() }
+    fun basculerSemaineMoi() { semaineMoi = !semaineMoi; chargerSemaine() }
 
     // ------------------------------------------------------------------ Renouvellement du matériel
     var suggestionsRenouv by mutableStateOf<List<SuggestionRenouv>>(emptyList())

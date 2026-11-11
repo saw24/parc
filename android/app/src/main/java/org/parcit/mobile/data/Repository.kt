@@ -156,6 +156,12 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     // ------------------------------------------------------------------ Administration
     suspend fun utilisateursAdmin(q: String): List<UtilisateurAdmin> =
         api.get("utilisateurs", buildMap { put("detail", "1"); put("inclure_inactifs", "1"); if (q.isNotBlank()) put("q", q.trim()) }).data()
+    /** Échéances d'une période ; relu depuis la copie locale hors ligne. */
+    suspend fun planning(du: String, au: String, moi: Boolean): List<EvenementPlanning> =
+        avecCache("planning_${du}_${au}_$moi", ListSerializer(EvenementPlanning.serializer())) {
+            api.get("planning", buildMap { put("du", du); put("au", au); if (moi) put("assigne", "moi") }).data()
+        }
+
     // Renouvellement du matériel (nécessite le réseau)
     suspend fun suggestionsRenouv(): List<SuggestionRenouv> = api.get("renouvellements/suggestions").data()
     suspend fun renouvellements(): List<Renouvellement> = api.get("renouvellements").data()

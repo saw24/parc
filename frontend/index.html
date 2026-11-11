@@ -64,6 +64,12 @@
                     </a>
                 </li>
                 <li>
+                    <a href="#planning" data-title="Planning">
+                        <i class="fas fa-calendar-alt"></i>
+                        Planning
+                    </a>
+                </li>
+                <li>
                     <a href="#maintenance" data-title="Maintenance préventive">
                         <i class="fas fa-tools"></i>
                         Maintenance
@@ -719,6 +725,26 @@
                 </div>
                 </div>
             </main>
+            <!-- =================== PAGE: PLANNING (CALENDRIER) =================== -->
+            <main id="planning-page" class="page-content">
+                <div class="controls-bar">
+                    <button class="btn" id="plan-prec" title="Mois précédent"><i class="fas fa-chevron-left"></i></button>
+                    <strong id="plan-mois" style="min-width:150px; text-align:center"></strong>
+                    <button class="btn" id="plan-suiv" title="Mois suivant"><i class="fas fa-chevron-right"></i></button>
+                    <button class="btn" id="plan-aujourdhui">Aujourd'hui</button>
+                    <select id="plan-agent" title="Filtrer par agent"><option value="">Tous les agents</option><option value="moi">Mes échéances</option></select>
+                    <span class="field-hint" id="plan-statut"></span>
+                </div>
+                <p class="field-hint">
+                    <span class="plan-pastille plan-echeance"></span> Échéance de panne
+                    <span class="plan-pastille plan-preventif"></span> Maintenance préventive
+                    <span class="plan-pastille plan-plan"></span> Plan à venir
+                    <span class="plan-pastille plan-relance"></span> Relance
+                    <span class="plan-pastille plan-garantie"></span> Fin de garantie
+                </p>
+                <div id="plan-grille" class="plan-grille"></div>
+                <div id="plan-jour" class="table-container" style="margin-top:16px; display:none"></div>
+            </main>
             <!-- =================== PAGE: MAINTENANCE PRÉVENTIVE =================== -->
             <main id="maintenance-page" class="page-content">
                 <div class="controls-bar">
@@ -1201,5 +1227,6 @@
         <script src="assets/js/roles.js"></script>
         <script src="assets/js/renouvellement.js"></script>
         <script src="assets/js/maintenance.js"></script>
+        <script src="assets/js/planning.js"></script>
     </body>
 </html>

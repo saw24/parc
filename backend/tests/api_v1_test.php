@@ -502,6 +502,30 @@ try {
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_M_'");
     $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_MNT'");
 
+    echo "Planning\n";
+    $pdo->exec("INSERT INTO t_type_materiel (type) VALUES ('ZZ_V1_PLN')");
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie, date_fin_garantie) VALUES ('ZZ_V1_PLN', 'ZZ', 'En service', 'ZZ_V1_PL', CURRENT_DATE + 3)");
+    $r = api('POST', 'maintenance/plans', ['titre' => 'ZZ_V1_PLANNING', 'type_materiel' => 'ZZ_V1_PLN', 'periodicite_valeur' => 1, 'periodicite_unite' => 'semaine',
+        'prochaine_echeance' => date('Y-m-d', strtotime('+2 days')), 'anticipation_jours' => 0], $A('admin'));
+    $plid = $r[1]['data']['id'] ?? 0;
+    $du = date('Y-m-d'); $au = date('Y-m-d', strtotime('+10 days'));
+    $r = api('GET', "planning?du=$du&au=$au", null, $A('admin'));
+    $ev = $r[1]['data'] ?? [];
+    $plans = array_values(array_filter($ev, fn($e) => $e['type'] === 'plan' && $e['titre'] === 'ZZ_V1_PLANNING'));
+    check('planning : plan hebdomadaire projeté (2 occurrences sur 10 jours)', $r[0] === 200 && count($plans) === 2);
+    check('planning : fin de garantie', count(array_filter($ev, fn($e) => $e['type'] === 'garantie' && str_contains($e['detail'], 'ZZ_V1_PL'))) === 1);
+    check('planning : période trop longue → 422', api('GET', "planning?du=$du&au=" . date('Y-m-d', strtotime('+90 days')), null, $A('admin'))[0] === 422);
+    check('planning : sans jeton → 401', api('GET', 'planning')[0] === 401);
+    $tp = api('POST', 'taches', ['titre' => 'ZZ_V1_PLN_T', 'priorite' => 'Haute', 'service_id' => $svc, 'date_limite' => date('Y-m-d', strtotime('+1 day'))], $A('tech'));
+    $r = api('GET', "planning?du=$du&au=$au", null, $A('admin'));
+    check('planning : échéance de panne listée', count(array_filter($r[1]['data'], fn($e) => $e['type'] === 'echeance' && $e['titre'] === 'ZZ_V1_PLN_T')) === 1 && $tp[0] === 201, $tp[3]);
+    $r = api('GET', "planning?du=$du&au=$au", null, $A('agent'));
+    check('planning : le déclarant ne voit ni plans ni garanties', $r[0] === 200 && !array_filter($r[1]['data'], fn($e) => in_array($e['type'], ['plan', 'garantie'], true)));
+    api('DELETE', "maintenance/plans/$plid", null, $A('admin'));
+    $pdo->exec("DELETE FROM t_taches WHERE titre = 'ZZ_V1_PLN_T'");
+    $pdo->exec("DELETE FROM t_materiel WHERE num_serie = 'ZZ_V1_PL'");
+    $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_PLN'");
+
     echo "Pont avec la session du site web\n";
     $web = bin2hex(random_bytes(32));
     $pdo->prepare("INSERT INTO t_sessions (user_id, session_token, expiry_time) VALUES (?, ?, NOW() + interval '1 hour')")->execute([$ids['admin'], hash('sha256', $web)]);
