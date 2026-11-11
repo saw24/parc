@@ -64,6 +64,12 @@
                     </a>
                 </li>
                 <li>
+                    <a href="#maintenance" data-title="Maintenance préventive">
+                        <i class="fas fa-tools"></i>
+                        Maintenance
+                    </a>
+                </li>
+                <li>
                     <a href="#renouvellement" data-title="Renouvellement du matériel">
                         <i class="fas fa-recycle"></i>
                         Renouvellement
@@ -713,6 +719,48 @@
                 </div>
                 </div>
             </main>
+            <!-- =================== PAGE: MAINTENANCE PRÉVENTIVE =================== -->
+            <main id="maintenance-page" class="page-content">
+                <div class="controls-bar">
+                    <button class="btn btn-primary" id="maint-nouveau"><i class="fas fa-plus"></i> Nouveau plan</button>
+                    <button class="btn" id="maint-generer" title="Crée tout de suite les tâches des plans dont l'échéance approche"><i class="fas fa-play"></i> Générer maintenant</button>
+                    <span class="field-hint" id="maint-statut"></span>
+                </div>
+                <form id="maint-form" style="display:none; margin:12px 0; padding:16px; border:1px solid var(--border-color, #d9dee8); border-radius:10px">
+                    <input type="hidden" id="maint-id">
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-titre">Titre *</label><input type="text" id="maint-titre" maxlength="200" required placeholder="Ex. Nettoyage et contrôle des postes"></div>
+                        <div class="form-group"><label for="maint-priorite">Priorité</label>
+                            <select id="maint-priorite"><option>Basse</option><option selected>Moyenne</option><option>Haute</option></select></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-cible-type">Cible *</label>
+                            <select id="maint-cible-type"><option value="type">Tous les matériels d'un type</option><option value="materiel">Un matériel précis</option></select></div>
+                        <div class="form-group"><label for="maint-cible">&nbsp;</label><select id="maint-cible"></select></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-valeur">Répéter tous les *</label><input type="number" id="maint-valeur" min="1" max="120" value="6"></div>
+                        <div class="form-group"><label for="maint-unite">Unité</label>
+                            <select id="maint-unite"><option value="jour">jour(s)</option><option value="semaine">semaine(s)</option><option value="mois" selected>mois</option><option value="an">an(s)</option></select></div>
+                        <div class="form-group"><label for="maint-echeance">Prochaine échéance *</label><input type="date" id="maint-echeance" required></div>
+                        <div class="form-group"><label for="maint-anticipation">Créer la tâche (jours avant)</label><input type="number" id="maint-anticipation" min="0" max="120" value="7"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-assigne">Assigné à</label><select id="maint-assigne"><option value="">File Service IT</option></select></div>
+                        <div class="form-group"><label for="maint-actif">Actif</label><select id="maint-actif"><option value="1">Oui</option><option value="0">Non (suspendu)</option></select></div>
+                    </div>
+                    <div class="form-group"><label for="maint-checklist">Points à vérifier (un par ligne)</label><textarea id="maint-checklist" rows="3"></textarea></div>
+                    <div class="form-group"><label for="maint-description">Description</label><textarea id="maint-description" rows="2"></textarea></div>
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                    <button type="button" class="btn" id="maint-annuler">Annuler</button>
+                </form>
+                <div class="table-container">
+                    <table id="maint-table">
+                        <thead><tr><th>Plan</th><th>Cible</th><th>Périodicité</th><th>Prochaine échéance</th><th>Assigné</th><th>État</th><th>Actions</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </main>
             <!-- =================== PAGE: RENOUVELLEMENT DU MATÉRIEL =================== -->
             <main id="renouvellement-page" class="page-content">
                 <div class="controls-bar">
@@ -1100,6 +1148,10 @@
                                 <input type="date" id="date_achat" name="date_achat">
                             </div>
                             <div class="form-group">
+                                <label for="date_fin_garantie">Fin de garantie</label>
+                                <input type="date" id="date_fin_garantie" name="date_fin_garantie">
+                            </div>
+                            <div class="form-group">
                                 <label for="service">Service affecté</label>
                                 <select id="service" name="service">
                                     <option value="">Sélectionner un service</option>
@@ -1148,5 +1200,6 @@
         <script src="assets/js/script.js"></script>
         <script src="assets/js/roles.js"></script>
         <script src="assets/js/renouvellement.js"></script>
+        <script src="assets/js/maintenance.js"></script>
     </body>
 </html>

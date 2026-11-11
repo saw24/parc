@@ -6,7 +6,7 @@
 const MATERIEL_STATUTS = ['En attente', 'En service', 'En panne', 'Retiré'];
 
 const MATERIEL_SELECT = "
-    SELECT m.id, m.type, m.marque, m.modele, m.num_serie, m.date_achat, m.statut,
+    SELECT m.id, m.type, m.marque, m.modele, m.num_serie, m.date_achat, m.date_fin_garantie, m.statut,
            m.service_affecte, s.id AS service_id, m.utilisateur_assigne, u.id AS utilisateur_id,
            m.date_derniere_affect, m.date_creation, m.date_modification, m.date_modification::text AS dm_raw,
            (SELECT COUNT(*) FROM t_taches t WHERE t.materiel_id = m.id AND t.statut NOT IN ('Terminé', 'Annulé')) AS pannes_ouvertes
@@ -27,7 +27,7 @@ function materiel_json(PDO $pdo, array $r): array
         'id' => (int) $r['id'],
         'libelle' => materiel_libelle($r),
         'type' => $r['type'], 'marque' => $r['marque'], 'modele' => $r['modele'], 'num_serie' => $r['num_serie'],
-        'date_achat' => $r['date_achat'], 'statut' => $r['statut'],
+        'date_achat' => $r['date_achat'], 'date_fin_garantie' => $r['date_fin_garantie'], 'statut' => $r['statut'],
         'service' => $r['service_affecte'] === null || $r['service_affecte'] === '' ? null
             : ['id' => $r['service_id'] !== null ? (int) $r['service_id'] : null, 'nom' => $r['service_affecte']],
         'utilisateur' => $r['utilisateur_assigne'] === null || $r['utilisateur_assigne'] === '' ? null
@@ -98,6 +98,7 @@ function materiel_valider(PDO $pdo, array $in): array
         'modele' => api_str($in, 'modele', false, 100),
         'num_serie' => api_str($in, 'num_serie', false, 100),
         'date_achat' => api_date($in, 'date_achat'),
+        'date_fin_garantie' => api_date($in, 'date_fin_garantie'),
         'statut' => api_enum($in, 'statut', MATERIEL_STATUTS),
         'date_derniere_affect' => api_date($in, 'date_derniere_affect'),
         'service_affecte' => null,
@@ -156,11 +157,11 @@ function materiel_creer(PDO $pdo, array $user, array $in): int
     $pdo->beginTransaction();
     try {
         $st = $pdo->prepare("
-            INSERT INTO t_materiel (type, marque, modele, num_serie, date_achat, statut, service_affecte,
+            INSERT INTO t_materiel (type, marque, modele, num_serie, date_achat, date_fin_garantie, statut, service_affecte,
                 utilisateur_assigne, date_derniere_affect, created_by_login, updated_by_login)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
         ");
-        $st->execute([$d['type'], $d['marque'], $d['modele'], $d['num_serie'], $d['date_achat'], $d['statut'],
+        $st->execute([$d['type'], $d['marque'], $d['modele'], $d['num_serie'], $d['date_achat'], $d['date_fin_garantie'], $d['statut'],
             $d['service_affecte'], $d['utilisateur_assigne'], $d['date_derniere_affect'], $user['login'], $user['login']]);
         $id = (int) $st->fetchColumn();
         materiel_historiser($pdo, $id, $d['utilisateur_assigne'], $d['service_affecte'], $user['login'], $d['date_derniere_affect']);
@@ -186,7 +187,7 @@ function materiel_modifier(PDO $pdo, array $user, int $id, array $in): void
     }
     $base = [
         'type' => $actuel['type'], 'marque' => $actuel['marque'], 'modele' => $actuel['modele'], 'num_serie' => $actuel['num_serie'],
-        'date_achat' => $actuel['date_achat'], 'statut' => $actuel['statut'], 'date_derniere_affect' => $actuel['date_derniere_affect'],
+        'date_achat' => $actuel['date_achat'], 'date_fin_garantie' => $actuel['date_fin_garantie'], 'statut' => $actuel['statut'], 'date_derniere_affect' => $actuel['date_derniere_affect'],
         'service_id' => $actuel['service_id'], 'utilisateur_id' => $actuel['utilisateur_id'],
     ];
     foreach (array_keys($base) as $cle) {
@@ -207,10 +208,10 @@ function materiel_modifier(PDO $pdo, array $user, int $id, array $in): void
     $pdo->beginTransaction();
     try {
         $pdo->prepare("
-            UPDATE t_materiel SET type = ?, marque = ?, modele = ?, num_serie = ?, date_achat = ?, statut = ?,
+            UPDATE t_materiel SET type = ?, marque = ?, modele = ?, num_serie = ?, date_achat = ?, date_fin_garantie = ?, statut = ?,
                 service_affecte = ?, utilisateur_assigne = ?, date_derniere_affect = ?, updated_by_login = ?
             WHERE id = ?
-        ")->execute([$d['type'], $d['marque'], $d['modele'], $d['num_serie'], $d['date_achat'], $d['statut'],
+        ")->execute([$d['type'], $d['marque'], $d['modele'], $d['num_serie'], $d['date_achat'], $d['date_fin_garantie'], $d['statut'],
             $d['service_affecte'], $d['utilisateur_assigne'], $d['date_derniere_affect'], $user['login'], $id]);
         if (($actuel['utilisateur_assigne'] ?: null) !== $d['utilisateur_assigne'] || ($actuel['service_affecte'] ?: null) !== $d['service_affecte']) {
             $pdo->prepare("UPDATE t_materiel_affectations SET date_fin = NOW() WHERE materiel_id = ? AND date_fin IS NULL")->execute([$id]);

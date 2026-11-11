@@ -110,3 +110,17 @@ Permissions : `renouvellement.voir`, `renouvellement.proposer`, `renouvellement.
 | `POST renouvellements/{id}/decision` | `{decision, commentaire?}` ; cycle Proposé → Validé → Commandé → Remplacé, ou Refusé (commentaire requis) ; « Remplacé » passe l'ancien matériel à « Retiré ». |
 
 `PATCH types_materiel/{id}` accepte `duree_vie_mois` (6 à 240) ; `GET types_materiel` le renvoie.
+
+## Maintenance préventive
+
+Permissions : `maintenance.voir`, `maintenance.gerer`. Un plan cible un matériel (`materiel_id`) **ou** un type (`type_materiel`), avec une périodicité (`periodicite_valeur` + `periodicite_unite` : jour, semaine, mois, an), une `prochaine_echeance`, une `anticipation_jours`, une `priorite`, un `assigne_id` (défaut : file Service IT) et une `checklist`.
+
+| Route | Rôle |
+|---|---|
+| `GET maintenance/plans` · `GET maintenance/plans/{id}` | Liste ; le détail ajoute les 30 dernières occurrences et leur tâche. |
+| `POST maintenance/plans` · `PATCH maintenance/plans/{id}` · `DELETE maintenance/plans/{id}` | Gestion des plans (les tâches déjà créées sont conservées). |
+| `POST maintenance/generer` | `{plan_id?}` : génère tout de suite les tâches dues ; renvoie `{plans, taches}`. |
+
+Génération automatique : `php backend/scripts/maintenance.php`, à planifier chaque jour (`0 6 * * *`). Une tâche (source `systeme`, titre « [Préventif] … », date limite = échéance) est créée `anticipation_jours` avant l'échéance pour chaque matériel actif ciblé, puis l'échéance avance d'une période. Une même échéance n'est jamais générée deux fois pour un matériel.
+
+`date_fin_garantie` est lue et modifiée via `materiel` ; une garantie qui expire dans 90 jours fait apparaître le matériel dans les suggestions de renouvellement.

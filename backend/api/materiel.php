@@ -84,6 +84,7 @@ switch ($action) {
         $modele = isset($_POST['modele']) ? $_POST['modele'] : '';
         $num_serie = isset($_POST['num_serie']) ? $_POST['num_serie'] : '';
         $date_achat = isset($_POST['date_achat']) && !empty($_POST['date_achat']) ? $_POST['date_achat'] : null;
+        $date_fin_garantie = !empty($_POST['date_fin_garantie']) ? $_POST['date_fin_garantie'] : null;
         $statut = isset($_POST['statut']) ? $_POST['statut'] : '';
         $service_affecte = isset($_POST['service']) ? $_POST['service'] : '';
         $utilisateur_assigne = isset($_POST['utilisateur']) ? $_POST['utilisateur'] : '';
@@ -111,11 +112,11 @@ switch ($action) {
 
         try {
             // Requête d'insertion préparée pour la sécurité (évite les injections SQL)
-            $sql = "INSERT INTO t_materiel (type, marque, modele, num_serie, date_achat, statut, service_affecte, utilisateur_assigne, date_derniere_affect, created_by_login, updated_by_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO t_materiel (type, marque, modele, num_serie, date_achat, date_fin_garantie, statut, service_affecte, utilisateur_assigne, date_derniere_affect, created_by_login, updated_by_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
 
             // Exécution de la requête avec les valeurs
-            $result = $stmt->execute([$type, $marque, $modele, $num_serie, $date_achat, $statut, $service_affecte, $utilisateur_assigne, $date_derniere_affect, $created_by_login, $updated_by_login]);
+            $result = $stmt->execute([$type, $marque, $modele, $num_serie, $date_achat, $date_fin_garantie, $statut, $service_affecte, $utilisateur_assigne, $date_derniere_affect, $created_by_login, $updated_by_login]);
 
             if ($result) {
                 // Historique d'affectation : on enregistre l'affectation initiale si elle existe.
@@ -187,6 +188,7 @@ switch ($action) {
         $modele = isset($_POST['modele']) ? $_POST['modele'] : '';
         $num_serie = isset($_POST['num_serie']) ? $_POST['num_serie'] : '';
         $date_achat = isset($_POST['date_achat']) && !empty($_POST['date_achat']) ? $_POST['date_achat'] : null;
+        $date_fin_garantie = !empty($_POST['date_fin_garantie']) ? $_POST['date_fin_garantie'] : null;
         $statut = isset($_POST['statut']) ? $_POST['statut'] : '';
         $service_affecte = isset($_POST['service']) ? $_POST['service'] : '';
         $utilisateur_assigne = isset($_POST['utilisateur']) ? $_POST['utilisateur'] : '';
@@ -232,11 +234,11 @@ switch ($action) {
             $avant = $avantStmt->fetch();
 
             // Requête de mise à jour préparée
-            $sql = "UPDATE t_materiel SET type = ?, marque = ?, modele = ?, num_serie = ?, date_achat = ?, statut = ?, service_affecte = ?, utilisateur_assigne = ?, date_derniere_affect = ?, updated_by_login = ? WHERE id = ?";
+            $sql = "UPDATE t_materiel SET type = ?, marque = ?, modele = ?, num_serie = ?, date_achat = ?, date_fin_garantie = ?, statut = ?, service_affecte = ?, utilisateur_assigne = ?, date_derniere_affect = ?, updated_by_login = ? WHERE id = ?";
             $stmt = $pdo->prepare($sql);
 
             // Exécution de la requête avec les valeurs
-            $result = $stmt->execute([$type, $marque, $modele, $num_serie, $date_achat, $statut, $service_affecte, $utilisateur_assigne, $date_derniere_affect, $updated_by_login, $id]);
+            $result = $stmt->execute([$type, $marque, $modele, $num_serie, $date_achat, $date_fin_garantie, $statut, $service_affecte, $utilisateur_assigne, $date_derniere_affect, $updated_by_login, $id]);
 
             if ($result) {
                 // Historique d'affectation : si l'utilisateur ou le service assigné a changé,

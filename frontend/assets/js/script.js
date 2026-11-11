@@ -2079,6 +2079,10 @@ $(document).ready(function () {
                     <input type="date" id="date_achat" name="date_achat">
                 </div>
                 <div class="form-group">
+                    <label for="date_fin_garantie">Fin de garantie</label>
+                    <input type="date" id="date_fin_garantie" name="date_fin_garantie">
+                </div>
+                <div class="form-group">
                     <label for="service">Service affecté</label>
                     <select id="service" name="service">
                         <option value="">Sélectionner un service</option>
@@ -2664,6 +2668,7 @@ $(document).ready(function () {
                         $('#modele').val(materiel.modele);
                         $('#num_serie').val(materiel.num_serie);
                         $('#date_achat').val(materiel.date_achat);
+                        $('#date_fin_garantie').val(materiel.date_fin_garantie);
                         $('#statut').val(materiel.statut);
                         // On mémorise le service actuel comme référence : la confirmation
                         // d'affectation ne doit se déclencher que sur un vrai changement,
@@ -3410,6 +3415,7 @@ $(document).ready(function () {
             modele: $('#modele').val(),
             num_serie: $('#num_serie').val(),
             date_achat: $('#date_achat').val(),
+            date_fin_garantie: $('#date_fin_garantie').val(),
             statut: $('#statut').val(),
             service: $('#service').val(),
             utilisateur: $('#utilisateur').val(),

@@ -45,7 +45,8 @@ $comptes = [ // clé => [login, rôle, nom]
 ];
 
 function nettoyer(PDO $pdo, array $comptes, array $rolesTest): void {
-    $pdo->exec("DELETE FROM t_taches WHERE titre LIKE 'ZZ_V1_%'");
+    $pdo->exec("DELETE FROM t_taches WHERE titre LIKE 'ZZ_V1_%' OR titre LIKE '[Préventif] ZZ_V1_%'");
+    $pdo->exec("DELETE FROM t_plans_maintenance WHERE titre LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_login_attempts WHERE login LIKE 'zz_v1_%'");
     $pdo->exec("DELETE FROM t_utilisateurs WHERE login LIKE 'zz_v1_new%'");
@@ -469,6 +470,37 @@ try {
     $pdo->exec("DELETE FROM t_renouvellements WHERE materiel_id IN ($m1, $m2)");
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_RN%'");
     $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_RENT'");
+
+    echo "Maintenance préventive\n";
+    $pdo->exec("INSERT INTO t_type_materiel (type) VALUES ('ZZ_V1_MNT')");
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie, date_fin_garantie) VALUES ('ZZ_V1_MNT', 'ZZ', 'En service', 'ZZ_V1_MA', CURRENT_DATE + 30)");
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_MNT', 'ZZ', 'En service', 'ZZ_V1_MB')");
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_MNT', 'ZZ', 'Retiré', 'ZZ_V1_MC')");
+    $ma = (int) $pdo->query("SELECT id FROM t_materiel WHERE num_serie = 'ZZ_V1_MA'")->fetchColumn();
+    check('garantie proche : matériel suggéré au renouvellement', in_array($ma, array_map(fn($x) => $x['materiel']['id'], api('GET', 'renouvellements/suggestions', null, $A('admin'))[1]['data']), true));
+    check('maintenance : sans permission → 403', api('GET', 'maintenance/plans', null, $A('tech'))[0] === 403);
+    check('plan sans cible → 422', api('POST', 'maintenance/plans', ['titre' => 'ZZ_V1_PLAN', 'periodicite_valeur' => 1, 'periodicite_unite' => 'mois', 'prochaine_echeance' => date('Y-m-d')], $A('admin'))[0] === 422);
+    check('plan avec deux cibles → 422', api('POST', 'maintenance/plans', ['titre' => 'ZZ_V1_PLAN', 'materiel_id' => $ma, 'type_materiel' => 'ZZ_V1_MNT', 'periodicite_valeur' => 1, 'periodicite_unite' => 'mois', 'prochaine_echeance' => date('Y-m-d')], $A('admin'))[0] === 422);
+    $r = api('POST', 'maintenance/plans', ['titre' => 'ZZ_V1_PLAN', 'type_materiel' => 'ZZ_V1_MNT', 'periodicite_valeur' => 3, 'periodicite_unite' => 'mois',
+        'prochaine_echeance' => date('Y-m-d', strtotime('+5 days')), 'anticipation_jours' => 7, 'checklist' => "Nettoyer\nVérifier"], $A('admin'));
+    $pid = $r[1]['data']['id'] ?? 0;
+    check('plan créé (2 matériels actifs ciblés)', $r[0] === 201 && $r[1]['data']['nb_materiels'] === 2);
+    $r = api('POST', 'maintenance/generer', ['plan_id' => $pid], $A('admin'));
+    check('génération : une tâche par matériel actif', $r[0] === 200 && $r[1]['data']['taches'] === 2);
+    check('tâches créées avec source système et date limite = échéance',
+        (int) $pdo->query("SELECT COUNT(*) FROM t_taches WHERE titre = '[Préventif] ZZ_V1_PLAN' AND source = 'systeme' AND date_limite = CURRENT_DATE + 5")->fetchColumn() === 2);
+    check('échéance avancée de 3 mois', api('GET', "maintenance/plans/$pid", null, $A('admin'))[1]['data']['prochaine_echeance'] === date('Y-m-d', strtotime(date('Y-m-d', strtotime('+5 days')) . ' +3 months')));
+    check('rejeu sans doublon', api('POST', 'maintenance/generer', ['plan_id' => $pid], $A('admin'))[1]['data']['taches'] === 0);
+    $pdo->exec("UPDATE t_plans_maintenance SET prochaine_echeance = CURRENT_DATE + 5 WHERE id = $pid");
+    check('même échéance déjà générée : pas de doublon (idempotence)', api('POST', 'maintenance/generer', ['plan_id' => $pid], $A('admin'))[1]['data']['taches'] === 0);
+    check('plan modifié', api('PATCH', "maintenance/plans/$pid", ['actif' => false], $A('admin'))[1]['data']['actif'] === false);
+    check('plan inactif ignoré', api('POST', 'maintenance/generer', ['plan_id' => $pid], $A('admin'))[1]['data']['plans'] === 0);
+    check('plan supprimé', api('DELETE', "maintenance/plans/$pid", null, $A('admin'))[0] === 200);
+    check('garantie visible sur la fiche matériel', api('GET', "materiel/$ma", null, $A('tech'))[1]['data']['date_fin_garantie'] === date('Y-m-d', strtotime('+30 days')));
+    check('garantie modifiable', api('PATCH', "materiel/$ma", ['date_fin_garantie' => '2030-01-31'], $A('tech'))[1]['data']['date_fin_garantie'] === '2030-01-31');
+    $pdo->exec("DELETE FROM t_taches WHERE titre = '[Préventif] ZZ_V1_PLAN'");
+    $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_M_'");
+    $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_MNT'");
 
     echo "Pont avec la session du site web\n";
     $web = bin2hex(random_bytes(32));

@@ -5,6 +5,7 @@
 const RENOUV_DUREE_VIE_DEFAUT = 60;      // mois, si le type n'a pas de durée de vie propre
 const RENOUV_PANNES_SEUIL = 3;           // pannes sur la fenêtre ci-dessous
 const RENOUV_PANNES_FENETRE_MOIS = 12;
+const RENOUV_GARANTIE_ALERTE_JOURS = 90;
 const RENOUV_STATUTS = ['Proposé', 'Validé', 'Refusé', 'Commandé', 'Remplacé'];
 // Transitions autorisées par la décision.
 const RENOUV_TRANSITIONS = ['Proposé' => ['Validé', 'Refusé'], 'Validé' => ['Commandé', 'Refusé'], 'Commandé' => ['Remplacé']];
@@ -24,10 +25,18 @@ function renouv_evaluer(array $m): array
             $score += 25;
         }
     }
+    if ($m['jours_garantie'] !== null) {
+        $j = (int) $m['jours_garantie'];
+        if ($j >= 0 && $j <= RENOUV_GARANTIE_ALERTE_JOURS) { $criteres[] = ['code' => 'garantie_proche', 'texte' => "Garantie expire dans $j jour(s)"]; $score += 15; }
+    }
     $pannes = (int) $m['pannes_recentes'];
     if ($pannes >= RENOUV_PANNES_SEUIL) {
         $criteres[] = ['code' => 'pannes_repetees', 'texte' => "$pannes pannes sur les " . RENOUV_PANNES_FENETRE_MOIS . ' derniers mois'];
         $score += 20 + min(30, ($pannes - RENOUV_PANNES_SEUIL) * 10);
+    }
+    // Une garantie expirée ne suffit pas à elle seule (tout le vieux parc le serait) : elle aggrave un autre critère.
+    if ($criteres && $m['jours_garantie'] !== null && (int) $m['jours_garantie'] < 0) {
+        $criteres[] = ['code' => 'garantie_expiree', 'texte' => 'Garantie expirée depuis ' . abs((int) $m['jours_garantie']) . ' jour(s)']; $score += 10;
     }
     if ($m['statut'] === 'En panne' && (int) $m['pannes_ouvertes'] > 0 && $criteres) {
         $criteres[] = ['code' => 'en_panne', 'texte' => 'Actuellement en panne'];
@@ -43,8 +52,8 @@ function renouv_duree(int $mois): string
 }
 
 const RENOUV_BASE_MATERIEL = "
-    SELECT m.id, m.type, m.marque, m.modele, m.num_serie, m.date_achat, m.statut, m.service_affecte, m.utilisateur_assigne,
-           tm.duree_vie_mois,
+    SELECT m.id, m.type, m.marque, m.modele, m.num_serie, m.date_achat, m.date_fin_garantie, m.statut, m.service_affecte, m.utilisateur_assigne,
+           tm.duree_vie_mois, (m.date_fin_garantie - CURRENT_DATE) AS jours_garantie,
            CASE WHEN m.date_achat IS NULL THEN NULL
                 ELSE (EXTRACT(YEAR FROM age(CURRENT_DATE, m.date_achat)) * 12 + EXTRACT(MONTH FROM age(CURRENT_DATE, m.date_achat)))::int END AS age_mois,
            (SELECT COUNT(*) FROM t_taches t WHERE t.materiel_id = m.id
