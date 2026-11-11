@@ -47,6 +47,7 @@ $comptes = [ // clé => [login, rôle, nom]
 function nettoyer(PDO $pdo, array $comptes, array $rolesTest): void {
     $pdo->exec("DELETE FROM t_taches WHERE titre LIKE 'ZZ_V1_%' OR titre LIKE '[Préventif] ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_plans_maintenance WHERE titre LIKE 'ZZ_V1_%'");
+    $pdo->exec("DELETE FROM t_inventaires WHERE titre LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_login_attempts WHERE login LIKE 'zz_v1_%'");
     $pdo->exec("DELETE FROM t_utilisateurs WHERE login LIKE 'zz_v1_new%'");
@@ -525,6 +526,38 @@ try {
     $pdo->exec("DELETE FROM t_taches WHERE titre = 'ZZ_V1_PLN_T'");
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie = 'ZZ_V1_PL'");
     $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_PLN'");
+
+    echo "Inventaires\n";
+    $pdo->exec("INSERT INTO t_type_materiel (type) VALUES ('ZZ_V1_INV')");
+    foreach (['A', 'B', 'C'] as $k) { $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_INV', 'ZZ', 'En service', 'ZZ_V1_I$k')"); }
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_INV', 'ZZ', 'Retiré', 'ZZ_V1_IR')");
+    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_AUTRE', 'ZZ', 'En service', 'ZZ_V1_IX')");
+    $idI = fn($k) => (int) $pdo->query("SELECT id FROM t_materiel WHERE num_serie = 'ZZ_V1_I$k'")->fetchColumn();
+    check('inventaire : sans permission → 403', api('GET', 'inventaires', null, $A('agent'))[0] === 403);
+    check('inventaire : périmètre vide → 422', api('POST', 'inventaires', ['titre' => 'ZZ_V1_INV', 'type_materiel' => 'ZZ_V1_RIEN'], $A('admin'))[0] === 422);
+    $r = api('POST', 'inventaires', ['titre' => 'ZZ_V1_INV', 'type_materiel' => 'ZZ_V1_INV'], $A('admin'));
+    $iid = $r[1]['data']['id'] ?? 0;
+    check('inventaire créé : 3 matériels actifs attendus (le retiré est exclu)', $r[0] === 201 && $r[1]['data']['compteurs']['attendus'] === 3 && $r[1]['data']['compteurs']['a_pointer'] === 3);
+    $r = api('POST', "inventaires/$iid/pointer", ['code' => 'étiquette | SN:ZZ_V1_IA | ID:' . $idI('A')], $A('admin'));
+    check('pointage par code QR → Présent', $r[0] === 200 && $r[1]['data']['statut'] === 'Présent' && $r[1]['data']['materiel']['num_serie'] === 'ZZ_V1_IA');
+    check('repointage idempotent', api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_IA'], $A('admin'))[1]['data']['compteurs']['presents'] === 1);
+    check('déplacé sans observation → 422', api('POST', "inventaires/$iid/pointer", ['materiel_id' => $idI('B'), 'statut' => 'Déplacé'], $A('admin'))[0] === 422);
+    $r = api('POST', "inventaires/$iid/pointer", ['materiel_id' => $idI('B'), 'statut' => 'Déplacé', 'observation' => 'Salle 2'], $A('admin'));
+    check('déplacé avec observation', $r[0] === 200 && $r[1]['data']['compteurs']['deplaces'] === 1);
+    $r = api('POST', "inventaires/$iid/pointer", ['materiel_id' => $idI('X')], $A('admin'));
+    check('matériel hors périmètre ajouté', $r[0] === 200 && $r[1]['data']['hors_perimetre'] === true && $r[1]['data']['compteurs']['hors_perimetre'] === 1 && $r[1]['data']['compteurs']['attendus'] === 3);
+    $r = api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_INCONNU'], $A('admin'));
+    check('code inconnu conservé (non référencé), sans doublon', $r[0] === 200 && api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_INCONNU'], $A('admin'))[1]['data']['compteurs']['non_references'] === 1);
+    check('pointage refusé sans permission', api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_IC'], $A('gest'))[0] === 403);
+    $d = api('GET', "inventaires/$iid", null, $A('admin'))[1]['data'];
+    check('détail : lignes et progression', count($d['lignes']) === 5 && $d['compteurs']['pointes'] === 2);
+    check('clôture sans permission → 403', api('POST', "inventaires/$iid/cloture", [], $A('tech'))[0] === 403);
+    $r = api('POST', "inventaires/$iid/cloture", [], $A('admin'));
+    check('clôture : le non pointé devient manquant', $r[0] === 200 && $r[1]['meta']['marques_manquants'] === 1 && $r[1]['data']['compteurs']['manquants'] === 1 && $r[1]['data']['statut'] === 'Clos');
+    check('pointage après clôture → 409', api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_IC'], $A('admin'))[0] === 409);
+    check('inventaire supprimé', api('DELETE', "inventaires/$iid", null, $A('admin'))[0] === 200);
+    $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_I_' OR num_serie = 'ZZ_V1_IR'");
+    $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_INV'");
 
     echo "Pont avec la session du site web\n";
     $web = bin2hex(random_bytes(32));

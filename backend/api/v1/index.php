@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../lib/taches.php';
 require_once __DIR__ . '/../../lib/materiel.php';
 require_once __DIR__ . '/../../lib/renouvellement.php';
 require_once __DIR__ . '/../../lib/maintenance.php';
+require_once __DIR__ . '/../../lib/inventaire.php';
 
 set_exception_handler(function (Throwable $e): void {
     if ($e instanceof ApiException) {
@@ -55,7 +56,7 @@ function v1_user_json(PDO $pdo, array $user): array
     ];
 }
 
-foreach (['auth', 'divers', 'taches', 'materiel', 'notifications', 'renouvellement', 'maintenance', 'planning', 'admin'] as $fichier) {
+foreach (['auth', 'divers', 'taches', 'materiel', 'notifications', 'renouvellement', 'maintenance', 'planning', 'inventaire', 'admin'] as $fichier) {
     require __DIR__ . "/routes/$fichier.php";
 }
 
