@@ -17,6 +17,9 @@ import kotlinx.serialization.Serializable
     val gereParc get() = peut("materiel.creer") || peut("materiel.modifier")
     val voitUtilisateurs get() = peut("utilisateur.lister") || peut("utilisateur.gerer")
     val gereUtilisateurs get() = peut("utilisateur.gerer")
+    val voitRenouvellements get() = peut("renouvellement.voir")
+    val proposeRenouvellements get() = peut("renouvellement.proposer")
+    val decideRenouvellements get() = peut("renouvellement.decider")
     val gereServices get() = peut("referentiel.gerer") || peut("referentiel.supprimer")
 }
 
@@ -114,4 +117,18 @@ import kotlinx.serialization.Serializable
 @Serializable data class ServiceAdmin(
     val id: Int, val nom: String, val description: String? = null,
     @SerialName("nb_utilisateurs") val nbUtilisateurs: Int = 0, @SerialName("nb_materiels") val nbMateriels: Int = 0,
+)
+
+// ------------------------------------------------------------------ Renouvellement du matériel
+@Serializable data class CritereRenouv(val code: String = "", val texte: String = "")
+@Serializable data class MaterielRenouv(val id: Int, val libelle: String, val type: String? = null, val service: String? = null, val utilisateur: String? = null)
+@Serializable data class SuggestionRenouv(
+    val materiel: MaterielRenouv, @SerialName("age_mois") val ageMois: Int? = null, @SerialName("duree_vie_mois") val dureeVieMois: Int = 60,
+    @SerialName("pannes_recentes") val pannesRecentes: Int = 0, val criteres: List<CritereRenouv> = emptyList(), val score: Int = 0,
+)
+@Serializable data class Renouvellement(
+    val id: Int, val materiel: MaterielRenouv, val origine: String = "auto", val statut: String, val motif: String? = null,
+    val criteres: List<CritereRenouv> = emptyList(), @SerialName("cout_estime") val coutEstime: Double? = null,
+    @SerialName("propose_par") val proposePar: String? = null, @SerialName("decide_par") val decidePar: String? = null,
+    val commentaire: String? = null,
 )

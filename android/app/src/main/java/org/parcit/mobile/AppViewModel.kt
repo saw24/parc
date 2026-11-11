@@ -27,6 +27,7 @@ sealed interface Ecran {
     data class UtilisateurForm(val id: Int?) : Ecran
     data object Services : Ecran
     data object Sync : Ecran
+    data object Renouvellement : Ecran
 }
 
 /** Écrans principaux (barre du bas) : on y revient avec « Retour ». */
@@ -236,7 +237,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
             e is Ecran.UtilisateurForm -> Ecran.Utilisateurs
             e is Ecran.MaterielForm && e.id != null -> Ecran.MaterielDetail(e.id)
             e is Ecran.Scan || e is Ecran.MaterielForm || e is Ecran.MaterielDetail -> Ecran.Parc
-            e is Ecran.Detail || e is Ecran.Declarer || e is Ecran.Sync -> origine
+            e is Ecran.Detail || e is Ecran.Declarer || e is Ecran.Sync || e is Ecran.Renouvellement -> origine
             else -> Ecran.Liste
         }
         recharger()
@@ -245,7 +246,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     private fun recharger() {
         when (ecran) {
             Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser()
-            Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); else -> {}
+            Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); else -> {}
         }
     }
 
@@ -253,9 +254,9 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun estEquipe(t: Tache) = utilisateur?.voitInterventions == true || t.actions.changerStatut || t.actions.affecter
 
     fun aller(e: Ecran) {
-        if (e == Ecran.Sync) origine = if (ecran.principal) ecran else Ecran.Liste
+        if (e == Ecran.Sync || e == Ecran.Renouvellement) origine = if (ecran.principal) ecran else Ecran.Liste
         ecran = e; detail = null
-        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); else -> {} }
+        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); else -> {} }
     }
 
     // ------------------------------------------------------------------ Interventions
@@ -276,6 +277,17 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     fun commenterEquipe(texte: String, visibleDeclarant: Boolean) { val t = detail ?: return
         majDetail { repo.commenterEquipe(t.id, texte, visibleDeclarant) } }
+
+    // ------------------------------------------------------------------ Renouvellement du matériel
+    var suggestionsRenouv by mutableStateOf<List<SuggestionRenouv>>(emptyList())
+    var renouvellements by mutableStateOf<List<Renouvellement>>(emptyList())
+    fun chargerRenouv() = lancer { suggestionsRenouv = repo.suggestionsRenouv(); renouvellements = repo.renouvellements() }
+    fun proposerRenouv(materielId: Int, cout: Double?, motif: String?) = lancer {
+        repo.proposerRenouv(materielId, cout, motif); message = "Renouvellement proposé."
+        suggestionsRenouv = repo.suggestionsRenouv(); renouvellements = repo.renouvellements() }
+    fun deciderRenouv(id: Int, decision: String, commentaire: String?) = lancer {
+        repo.deciderRenouv(id, decision, commentaire); message = "Proposition : $decision."
+        suggestionsRenouv = repo.suggestionsRenouv(); renouvellements = repo.renouvellements() }
 
     // ------------------------------------------------------------------ Parc
     fun chargerParc() = lancer(chargeur = parc.isEmpty()) { parc = repo.parc(rechercheParc, statutParc) }

@@ -156,6 +156,15 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     // ------------------------------------------------------------------ Administration
     suspend fun utilisateursAdmin(q: String): List<UtilisateurAdmin> =
         api.get("utilisateurs", buildMap { put("detail", "1"); put("inclure_inactifs", "1"); if (q.isNotBlank()) put("q", q.trim()) }).data()
+    // Renouvellement du matériel (nécessite le réseau)
+    suspend fun suggestionsRenouv(): List<SuggestionRenouv> = api.get("renouvellements/suggestions").data()
+    suspend fun renouvellements(): List<Renouvellement> = api.get("renouvellements").data()
+    suspend fun proposerRenouv(materielId: Int, cout: Double?, motif: String?) {
+        api.post("renouvellements", buildJsonObject { put("materiel_id", materielId); cout?.let { put("cout_estime", it) }; if (!motif.isNullOrBlank()) put("motif", motif) })
+    }
+    suspend fun deciderRenouv(id: Int, decision: String, commentaire: String?) {
+        api.post("renouvellements/$id/decision", buildJsonObject { put("decision", decision); if (!commentaire.isNullOrBlank()) put("commentaire", commentaire) })
+    }
     suspend fun roles(): List<Role> = api.get("roles").data()
     suspend fun enregistrerUtilisateur(id: Int?, champs: JsonObject) { if (id == null) api.post("utilisateurs", champs) else api.patch("utilisateurs/$id", champs) }
     suspend fun supprimerUtilisateur(id: Int) { api.delete("utilisateurs/$id") }

@@ -81,6 +81,7 @@ fun Root(vm: AppViewModel) {
                 is Ecran.UtilisateurForm -> { BackHandler { vm.retour() }; EcranFormUtilisateur(vm, e.id) }
                 Ecran.Services -> { BackHandler { vm.retour() }; EcranServices(vm) }
                 Ecran.Sync -> { BackHandler { vm.retour() }; EcranSync(vm) }
+                Ecran.Renouvellement -> { BackHandler { vm.retour() }; EcranRenouvellement(vm) }
             }
             vm.alerte?.let { n ->
                 AlertDialog(onDismissRequest = { vm.fermerAlerte() }, icon = { Icon(iconeNotification(n.type), null) },
@@ -212,6 +213,8 @@ fun EcranListe(vm: AppViewModel) {
                             onClick = { menu = false; vm.ouvrirUtilisateurs() })
                         if (vm.utilisateur?.gereServices == true) DropdownMenuItem(text = { Text("Services") }, leadingIcon = { Icon(Icons.Rounded.Business, null) },
                             onClick = { menu = false; vm.ouvrirServices() })
+                        if (vm.utilisateur?.voitRenouvellements == true) DropdownMenuItem(text = { Text("Renouvellement") }, leadingIcon = { Icon(Icons.Rounded.Autorenew, null) },
+                            onClick = { menu = false; vm.aller(Ecran.Renouvellement) })
                         DropdownMenuItem(text = { Text(if (vm.sync.enAttente > 0) "Synchronisation (${vm.sync.enAttente})" else "Synchronisation") },
                             leadingIcon = { Icon(Icons.Rounded.Sync, null) }, onClick = { menu = false; vm.aller(Ecran.Sync) })
                         DropdownMenuItem(text = { Text(if (vm.sombre) "Thème clair" else "Thème sombre") },
