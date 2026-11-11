@@ -17,6 +17,9 @@ import kotlinx.serialization.Serializable
     val gereParc get() = peut("materiel.creer") || peut("materiel.modifier")
     val voitUtilisateurs get() = peut("utilisateur.lister") || peut("utilisateur.gerer")
     val gereUtilisateurs get() = peut("utilisateur.gerer")
+    val voitInventaires get() = peut("inventaire.voir")
+    val pointeInventaires get() = peut("inventaire.pointer")
+    val gereInventaires get() = peut("inventaire.gerer")
     val voitRenouvellements get() = peut("renouvellement.voir")
     val proposeRenouvellements get() = peut("renouvellement.proposer")
     val decideRenouvellements get() = peut("renouvellement.decider")
@@ -139,3 +142,32 @@ import kotlinx.serialization.Serializable
     val date: String, val type: String, val titre: String, val detail: String? = null, val assigne: String? = null,
     val retard: Boolean = false, val tache: TacheRefPlanning? = null,
 )
+
+// ------------------------------------------------------------------ Inventaires
+@Serializable data class CompteursInv(
+    val attendus: Int = 0, @SerialName("a_pointer") val aPointer: Int = 0, val presents: Int = 0, val deplaces: Int = 0, val manquants: Int = 0,
+    @SerialName("hors_perimetre") val horsPerimetre: Int = 0, @SerialName("non_references") val nonReferences: Int = 0, val pointes: Int = 0,
+)
+@Serializable data class MaterielInv(
+    val id: Int, val libelle: String, @SerialName("num_serie") val numSerie: String? = null, val service: String? = null, val utilisateur: String? = null,
+)
+@Serializable data class LigneInv(
+    val id: Int, val statut: String, @SerialName("hors_perimetre") val horsPerimetre: Boolean = false, val observation: String? = null,
+    @SerialName("code_scanne") val codeScanne: String? = null, @SerialName("pointe_par") val pointePar: String? = null,
+    val materiel: MaterielInv? = null, val compteurs: CompteursInv? = null,
+)
+@Serializable data class PerimetreInv(val service: String? = null, val type: String? = null)
+@Serializable data class Inventaire(
+    val id: Int, val titre: String, val description: String? = null, val perimetre: PerimetreInv = PerimetreInv(),
+    @SerialName("date_limite") val dateLimite: String? = null, val statut: String = "Ouvert", val compteurs: CompteursInv = CompteursInv(),
+    val lignes: List<LigneInv> = emptyList(),
+)
+
+fun calculerCompteurs(lignes: List<LigneInv>): CompteursInv {
+    val attendues = lignes.filter { !it.horsPerimetre && it.statut != "Non référencé" }
+    val aPointer = attendues.count { it.statut == "À pointer" }
+    return CompteursInv(attendus = attendues.size, aPointer = aPointer, presents = attendues.count { it.statut == "Présent" },
+        deplaces = attendues.count { it.statut == "Déplacé" }, manquants = attendues.count { it.statut == "Manquant" },
+        horsPerimetre = lignes.count { it.horsPerimetre && it.statut != "Non référencé" }, nonReferences = lignes.count { it.statut == "Non référencé" },
+        pointes = attendues.size - aPointer)
+}

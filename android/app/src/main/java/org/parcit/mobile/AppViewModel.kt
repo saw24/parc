@@ -29,6 +29,8 @@ sealed interface Ecran {
     data object Sync : Ecran
     data object Renouvellement : Ecran
     data object Semaine : Ecran
+    data object Inventaires : Ecran
+    data class InventaireDetail(val id: Int) : Ecran
 }
 
 /** Écrans principaux (barre du bas) : on y revient avec « Retour ». */
@@ -238,7 +240,8 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
             e is Ecran.UtilisateurForm -> Ecran.Utilisateurs
             e is Ecran.MaterielForm && e.id != null -> Ecran.MaterielDetail(e.id)
             e is Ecran.Scan || e is Ecran.MaterielForm || e is Ecran.MaterielDetail -> Ecran.Parc
-            e is Ecran.Detail || e is Ecran.Declarer || e is Ecran.Sync || e is Ecran.Renouvellement || e is Ecran.Semaine -> origine
+            e is Ecran.Detail || e is Ecran.Declarer || e is Ecran.Sync || e is Ecran.Renouvellement || e is Ecran.Semaine || e is Ecran.Inventaires -> origine
+            e is Ecran.InventaireDetail -> Ecran.Inventaires
             else -> Ecran.Liste
         }
         recharger()
@@ -247,7 +250,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     private fun recharger() {
         when (ecran) {
             Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser()
-            Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); Ecran.Semaine -> chargerSemaine(); else -> {}
+            Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); Ecran.Semaine -> chargerSemaine(); Ecran.Inventaires -> chargerInventaires(); else -> {}
         }
     }
 
@@ -255,9 +258,9 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun estEquipe(t: Tache) = utilisateur?.voitInterventions == true || t.actions.changerStatut || t.actions.affecter
 
     fun aller(e: Ecran) {
-        if (e == Ecran.Sync || e == Ecran.Renouvellement || e == Ecran.Semaine) origine = if (ecran.principal) ecran else Ecran.Liste
+        if (e == Ecran.Sync || e == Ecran.Renouvellement || e == Ecran.Semaine || e == Ecran.Inventaires) origine = if (ecran.principal) ecran else Ecran.Liste
         ecran = e; detail = null
-        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); Ecran.Semaine -> chargerSemaine(); else -> {} }
+        when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); Ecran.Renouvellement -> chargerRenouv(); Ecran.Semaine -> chargerSemaine(); Ecran.Inventaires -> chargerInventaires(); else -> {} }
     }
 
     // ------------------------------------------------------------------ Interventions
@@ -278,6 +281,30 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     fun commenterEquipe(texte: String, visibleDeclarant: Boolean) { val t = detail ?: return
         majDetail { repo.commenterEquipe(t.id, texte, visibleDeclarant) } }
+
+    // ------------------------------------------------------------------ Inventaires
+    var inventaires by mutableStateOf<List<Inventaire>>(emptyList())
+    var inventaire by mutableStateOf<Inventaire?>(null)
+    var dernierPointage by mutableStateOf<String?>(null)
+    fun chargerInventaires() = lancer(chargeur = inventaires.isEmpty()) { inventaires = repo.inventaires() }
+    fun ouvrirInventaire(id: Int) {
+        ecran = Ecran.InventaireDetail(id); inventaire = inventaires.firstOrNull { it.id == id }?.takeIf { it.lignes.isNotEmpty() }; dernierPointage = null
+        lancer(chargeur = inventaire == null) { inventaire = repo.inventaire(id) }
+    }
+    /** Pointage d'un code scanné (Présent) ou d'une ligne choisie à la main (statut au choix). */
+    fun pointer(materielId: Int?, code: String?, statut: String = "Présent", observation: String? = null) { val inv = inventaire ?: return
+        lancer(chargeur = false) {
+            val l = repo.pointer(inv.id, materielId, code, statut, observation)
+            inventaire = repo.inventaire(inv.id)
+            dernierPointage = when {
+                l.statut == "Non référencé" -> "⚠ Code non référencé : ${l.codeScanne}"
+                l.horsPerimetre -> "＋ Hors périmètre : ${l.materiel?.libelle}"
+                else -> "✓ ${l.statut} : ${l.materiel?.libelle}"
+            }
+        } }
+    fun cloturerInventaire() { val inv = inventaire ?: return
+        if (sync.enAttente > 0) { message = "Synchronisez d'abord : des pointages hors ligne n'ont pas encore été envoyés."; return }
+        lancer { inventaire = repo.cloturerInventaire(inv.id); message = "Campagne close."; inventaires = repo.inventaires() } }
 
     // ------------------------------------------------------------------ Ma semaine (planning)
     var debutSemaine by mutableStateOf(java.time.LocalDate.now().with(java.time.DayOfWeek.MONDAY))

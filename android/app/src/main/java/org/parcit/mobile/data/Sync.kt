@@ -100,6 +100,7 @@ class SyncManager(
             "statut", "annuler" -> api.post("taches/$id/statut", JsonObject(op.payload + ("version" to JsonPrimitive(versionCourante(id)))))
             "affecter" -> api.post("taches/$id/affecter", JsonObject(op.payload + ("version" to JsonPrimitive(versionCourante(id)))))
             "modifier" -> api.patch("taches/$id", JsonObject(op.payload + ("version" to JsonPrimitive(versionCourante(id)))))
+            "pointer" -> api.post("inventaires/$id/pointer", op.payload)     // tacheId = numéro de l'inventaire
             else -> Unit
         }
     }
@@ -119,6 +120,7 @@ class SyncManager(
         e("Matériels") { repo.mesMateriels() }
         if (u.voitInterventions) e("Agents") { repo.agents() }
         e("Utilisateurs") { repo.utilisateurs() }
+        if (u.voitInventaires) e("Inventaires") { repo.telechargerInventaires() }
         if (u.voitUtilisateurs) e("Comptes") { repo.utilisateursAdmin(""); repo.roles() }
         if (u.gereServices) e("Services") { repo.servicesAdmin() }
         e("Détail des pannes en cours") { tirerDetails(u.id) }
