@@ -156,77 +156,8 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     // ------------------------------------------------------------------ Administration
     suspend fun utilisateursAdmin(q: String): List<UtilisateurAdmin> =
         api.get("utilisateurs", buildMap { put("detail", "1"); put("inclure_inactifs", "1"); if (q.isNotBlank()) put("q", q.trim()) }).data()
-    /** Échéances d'une période ; relu depuis la copie locale hors ligne. */
-    suspend fun planning(du: String, au: String, moi: Boolean): List<EvenementPlanning> =
-        avecCache("planning_${du}_${au}_$moi", ListSerializer(EvenementPlanning.serializer())) {
-            api.get("planning", buildMap { put("du", du); put("au", au); if (moi) put("assigne", "moi") }).data()
-        }
-
-    // ------------------------------------------------------------------ Inventaires (pointage possible hors ligne)
-    suspend fun inventaires(): List<Inventaire> = avecCache("inventaires", ListSerializer(Inventaire.serializer())) { api.get("inventaires").data() }
-    suspend fun inventaire(id: Int): Inventaire = avecCache("inventaire_$id", Inventaire.serializer()) { api.get("inventaires/$id").data() }
-
-    /** Télécharge les campagnes ouvertes (liste complète du matériel attendu) pour pointer sans réseau. */
-    suspend fun telechargerInventaires() { inventaires().filter { it.statut == "Ouvert" }.forEach { inventaire(it.id) } }
-
-    private fun majInventaireCache(id: Int, f: (Inventaire) -> Inventaire) {
-        val c = cache.lire("inventaire_$id", Inventaire.serializer())?.first ?: return
-        cache.ecrire("inventaire_$id", Inventaire.serializer(), f(c).let { it.copy(compteurs = calculerCompteurs(it.lignes)) })
-    }
-
-    private fun remplacerLigne(lignes: List<LigneInv>, l: LigneInv): List<LigneInv> {
-        val i = lignes.indexOfFirst { (l.materiel != null && it.materiel?.id == l.materiel.id) || (l.materiel == null && it.materiel == null && it.codeScanne == l.codeScanne) }
-        return if (i >= 0) lignes.toMutableList().also { it[i] = l.copy(compteurs = null) } else lignes + l.copy(compteurs = null)
-    }
-
-    /** Pointe un matériel (id ou code scanné). Hors ligne : mis en file et appliqué à la copie locale. */
-    suspend fun pointer(invId: Int, materielId: Int?, code: String?, statut: String, observation: String?): LigneInv {
-        val corps = buildJsonObject {
-            materielId?.let { put("materiel_id", it) }; if (materielId == null && code != null) put("code", code)
-            put("statut", statut); if (!observation.isNullOrBlank()) put("observation", observation)
-        }
-        try {
-            val l: LigneInv = api.post("inventaires/$invId/pointer", corps).data()
-            majInventaireCache(invId) { it.copy(lignes = remplacerLigne(it.lignes, l)) }
-            etatReseau(null)
-            return l
-        } catch (e: ApiException) {
-            if (!e.reseau) throw e
-            val local = cache.lire("inventaire_$invId", Inventaire.serializer())?.first ?: throw e
-            val sn = code?.let { Regex("SN:\\s*([^|]+)").find(it)?.groupValues?.get(1)?.trim() ?: it.trim() }
-            val idCode = code?.let { Regex("\\bID:(\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
-            val existante = local.lignes.firstOrNull { l ->
-                l.materiel != null && ((materielId != null && l.materiel.id == materielId) || (idCode != null && l.materiel.id == idCode) ||
-                    (sn != null && l.materiel.numSerie.equals(sn, ignoreCase = true)))
-            }
-            val ligne = existante?.copy(statut = statut, observation = observation, pointePar = "vous (hors ligne)")
-                ?: LigneInv(-(System.currentTimeMillis() % 1_000_000_000).toInt(), "Non référencé", true, observation, code, "vous (hors ligne)")
-            majInventaireCache(invId) { it.copy(lignes = remplacerLigne(it.lignes, ligne)) }
-            val payload = buildJsonObject {
-                if (existante != null) put("materiel_id", existante.materiel!!.id) else if (code != null) put("code", code)
-                put("statut", statut); if (!observation.isNullOrBlank()) put("observation", observation)
-            }
-            sync.enfiler(Operation(UUID.randomUUID().toString(), "pointer", invId, "Pointage ${ligne.materiel?.libelle ?: code ?: "matériel"}", System.currentTimeMillis(), payload))
-            info("Pointage enregistré hors ligne : il sera envoyé à la prochaine synchronisation.")
-            etatReseau(System.currentTimeMillis())
-            return ligne
-        }
-    }
-
-    suspend fun cloturerInventaire(id: Int): Inventaire {
-        api.post("inventaires/$id/cloture", buildJsonObject { })
-        return inventaire(id)
-    }
-
     // Renouvellement du matériel (nécessite le réseau)
     suspend fun suggestionsRenouv(): List<SuggestionRenouv> = api.get("renouvellements/suggestions").data()
-    suspend fun renouvellements(): List<Renouvellement> = api.get("renouvellements").data()
-    suspend fun proposerRenouv(materielId: Int, cout: Double?, motif: String?) {
-        api.post("renouvellements", buildJsonObject { put("materiel_id", materielId); cout?.let { put("cout_estime", it) }; if (!motif.isNullOrBlank()) put("motif", motif) })
-    }
-    suspend fun deciderRenouv(id: Int, decision: String, commentaire: String?) {
-        api.post("renouvellements/$id/decision", buildJsonObject { put("decision", decision); if (!commentaire.isNullOrBlank()) put("commentaire", commentaire) })
-    }
     suspend fun roles(): List<Role> = api.get("roles").data()
     suspend fun enregistrerUtilisateur(id: Int?, champs: JsonObject) { if (id == null) api.post("utilisateurs", champs) else api.patch("utilisateurs/$id", champs) }
     suspend fun supprimerUtilisateur(id: Int) { api.delete("utilisateurs/$id") }

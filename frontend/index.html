@@ -64,18 +64,6 @@
                     </a>
                 </li>
                 <li>
-                    <a href="#inventaires" data-title="Inventaires">
-                        <i class="fas fa-clipboard-check"></i>
-                        Inventaires
-                    </a>
-                </li>
-                <li>
-                    <a href="#planning" data-title="Planning">
-                        <i class="fas fa-calendar-alt"></i>
-                        Planning
-                    </a>
-                </li>
-                <li>
                     <a href="#maintenance" data-title="Maintenance préventive">
                         <i class="fas fa-tools"></i>
                         Maintenance
@@ -731,67 +719,6 @@
                 </div>
                 </div>
             </main>
-            <!-- =================== PAGE: INVENTAIRES =================== -->
-            <main id="inventaires-page" class="page-content">
-                <div class="controls-bar">
-                    <button class="btn btn-primary" id="inv-nouveau"><i class="fas fa-plus"></i> Nouvelle campagne</button>
-                    <span class="field-hint" id="inv-statut"></span>
-                </div>
-                <form id="inv-form" style="display:none; margin:12px 0; padding:16px; border:1px solid var(--border-color, #d9dee8); border-radius:10px">
-                    <div class="form-row">
-                        <div class="form-group"><label for="inv-titre">Titre *</label><input type="text" id="inv-titre" maxlength="200" required placeholder="Ex. Inventaire annuel — Comptabilité"></div>
-                        <div class="form-group"><label for="inv-date-limite">À terminer avant</label><input type="date" id="inv-date-limite"></div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group"><label for="inv-service">Service</label><select id="inv-service"><option value="">Tous les services</option></select></div>
-                        <div class="form-group"><label for="inv-type">Type de matériel</label><select id="inv-type"><option value="">Tous les types</option></select></div>
-                    </div>
-                    <div class="form-group"><label for="inv-description">Consignes</label><textarea id="inv-description" rows="2"></textarea></div>
-                    <button type="submit" class="btn btn-primary">Créer la campagne</button>
-                    <button type="button" class="btn" id="inv-annuler">Annuler</button>
-                </form>
-                <div class="table-container">
-                    <table id="inv-table">
-                        <thead><tr><th>Campagne</th><th>Périmètre</th><th>Avancement</th><th>Écarts</th><th>État</th><th>Actions</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <div id="inv-detail" style="display:none; margin-top:24px">
-                    <h3 id="inv-detail-titre"></h3>
-                    <p class="field-hint" id="inv-detail-resume"></p>
-                    <div class="controls-bar">
-                        <select id="inv-filtre"><option value="">Toutes les lignes</option><option>À pointer</option><option>Présent</option><option>Déplacé</option><option>Manquant</option><option>Non référencé</option></select>
-                        <button class="btn" id="inv-cloturer"><i class="fas fa-lock"></i> Clore la campagne</button>
-                        <button class="btn" id="inv-export"><i class="fas fa-file-csv"></i> Exporter (CSV)</button>
-                    </div>
-                    <div class="table-container">
-                        <table id="inv-lignes">
-                            <thead><tr><th>Matériel</th><th>Service / utilisateur</th><th>Statut</th><th>Observation</th><th>Pointé par</th><th>Actions</th></tr></thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-                </div>
-            </main>
-            <!-- =================== PAGE: PLANNING (CALENDRIER) =================== -->
-            <main id="planning-page" class="page-content">
-                <div class="controls-bar">
-                    <button class="btn" id="plan-prec" title="Mois précédent"><i class="fas fa-chevron-left"></i></button>
-                    <strong id="plan-mois" style="min-width:150px; text-align:center"></strong>
-                    <button class="btn" id="plan-suiv" title="Mois suivant"><i class="fas fa-chevron-right"></i></button>
-                    <button class="btn" id="plan-aujourdhui">Aujourd'hui</button>
-                    <select id="plan-agent" title="Filtrer par agent"><option value="">Tous les agents</option><option value="moi">Mes échéances</option></select>
-                    <span class="field-hint" id="plan-statut"></span>
-                </div>
-                <p class="field-hint">
-                    <span class="plan-pastille plan-echeance"></span> Échéance de panne
-                    <span class="plan-pastille plan-preventif"></span> Maintenance préventive
-                    <span class="plan-pastille plan-plan"></span> Plan à venir
-                    <span class="plan-pastille plan-relance"></span> Relance
-                    <span class="plan-pastille plan-garantie"></span> Fin de garantie
-                </p>
-                <div id="plan-grille" class="plan-grille"></div>
-                <div id="plan-jour" class="table-container" style="margin-top:16px; display:none"></div>
-            </main>
             <!-- =================== PAGE: MAINTENANCE PRÉVENTIVE =================== -->
             <main id="maintenance-page" class="page-content">
                 <div class="controls-bar">
@@ -843,14 +770,7 @@
                 <p class="field-hint" id="renouv-regles"></p>
                 <div class="table-container">
                     <table id="renouv-suggestions-table">
-                        <thead><tr><th>Matériel</th><th>Service / utilisateur</th><th>Âge</th><th>Critères</th><th>Priorité</th><th>Actions</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <h3 style="margin-top:28px">Propositions</h3>
-                <div class="table-container">
-                    <table id="renouv-table">
-                        <thead><tr><th>Matériel</th><th>Statut</th><th>Raisons</th><th>Coût estimé</th><th>Proposé par</th><th>Décision</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Matériel</th><th>Service / utilisateur</th><th>Âge</th><th>Critères</th><th>Priorité</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
@@ -1274,7 +1194,5 @@
         <script src="assets/js/roles.js"></script>
         <script src="assets/js/renouvellement.js"></script>
         <script src="assets/js/maintenance.js"></script>
-        <script src="assets/js/planning.js"></script>
-        <script src="assets/js/inventaires.js"></script>
     </body>
 </html>

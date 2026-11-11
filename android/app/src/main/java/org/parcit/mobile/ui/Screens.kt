@@ -81,9 +81,6 @@ fun Root(vm: AppViewModel) {
                 is Ecran.UtilisateurForm -> { BackHandler { vm.retour() }; EcranFormUtilisateur(vm, e.id) }
                 Ecran.Services -> { BackHandler { vm.retour() }; EcranServices(vm) }
                 Ecran.Sync -> { BackHandler { vm.retour() }; EcranSync(vm) }
-                Ecran.Inventaires -> { BackHandler { vm.retour() }; EcranInventaires(vm) }
-                is Ecran.InventaireDetail -> { BackHandler { vm.retour() }; EcranInventaire(vm) }
-                Ecran.Semaine -> { BackHandler { vm.retour() }; EcranSemaine(vm) }
                 Ecran.Renouvellement -> { BackHandler { vm.retour() }; EcranRenouvellement(vm) }
             }
             vm.alerte?.let { n ->
@@ -216,10 +213,6 @@ fun EcranListe(vm: AppViewModel) {
                             onClick = { menu = false; vm.ouvrirUtilisateurs() })
                         if (vm.utilisateur?.gereServices == true) DropdownMenuItem(text = { Text("Services") }, leadingIcon = { Icon(Icons.Rounded.Business, null) },
                             onClick = { menu = false; vm.ouvrirServices() })
-                        if (vm.utilisateur?.voitInventaires == true) DropdownMenuItem(text = { Text("Inventaires") }, leadingIcon = { Icon(Icons.Rounded.Checklist, null) },
-                            onClick = { menu = false; vm.aller(Ecran.Inventaires) })
-                        DropdownMenuItem(text = { Text("Ma semaine") }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
-                            onClick = { menu = false; vm.aller(Ecran.Semaine) })
                         if (vm.utilisateur?.voitRenouvellements == true) DropdownMenuItem(text = { Text("Renouvellement") }, leadingIcon = { Icon(Icons.Rounded.Autorenew, null) },
                             onClick = { menu = false; vm.aller(Ecran.Renouvellement) })
                         DropdownMenuItem(text = { Text(if (vm.sync.enAttente > 0) "Synchronisation (${vm.sync.enAttente})" else "Synchronisation") },

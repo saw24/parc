@@ -100,14 +100,11 @@ Chaque panne porte `actions` (`prendre`, `affecter`, `changer_statut`, `rouvrir`
 
 ## Renouvellement du matériel
 
-Permissions : `renouvellement.voir`, `renouvellement.proposer`, `renouvellement.decider`.
+Permission : `renouvellement.voir`.
 
 | Route | Rôle |
 |---|---|
-| `GET renouvellements/suggestions` | Matériel à renouveler selon les règles : fin de vie du type (`t_type_materiel.duree_vie_mois`, 60 mois par défaut) ou au moins 3 pannes sur 12 mois. Triées par `score` ; `meta.regles` donne les seuils. Exclut le matériel retiré ou déjà proposé. |
-| `GET renouvellements?statut=&actives=1` | Propositions (Proposé, Validé, Refusé, Commandé, Remplacé). |
-| `POST renouvellements` | `{materiel_id, motif?, cout_estime?}` ; `motif` obligatoire si aucun critère automatique ; 409 `deja_propose` si une proposition est déjà active. |
-| `POST renouvellements/{id}/decision` | `{decision, commentaire?}` ; cycle Proposé → Validé → Commandé → Remplacé, ou Refusé (commentaire requis) ; « Remplacé » passe l'ancien matériel à « Retiré ». |
+| `GET renouvellements/suggestions` | Matériel à renouveler selon les règles : fin de vie du type (`t_type_materiel.duree_vie_mois`, 60 mois par défaut), au moins 3 pannes sur 12 mois, ou garantie expirant sous 90 jours. Triées par `score` ; `meta.regles` donne les seuils. Exclut le matériel retiré. |
 
 `PATCH types_materiel/{id}` accepte `duree_vie_mois` (6 à 240) ; `GET types_materiel` le renvoie.
 
@@ -124,17 +121,3 @@ Permissions : `maintenance.voir`, `maintenance.gerer`. Un plan cible un matérie
 Génération automatique : `php backend/scripts/maintenance.php`, à planifier chaque jour (`0 6 * * *`). Une tâche (source `systeme`, titre « [Préventif] … », date limite = échéance) est créée `anticipation_jours` avant l'échéance pour chaque matériel actif ciblé, puis l'échéance avance d'une période. Une même échéance n'est jamais générée deux fois pour un matériel.
 
 `date_fin_garantie` est lue et modifiée via `materiel` ; une garantie qui expire dans 90 jours fait apparaître le matériel dans les suggestions de renouvellement.
-
-## Inventaires
-
-Permissions : `inventaire.voir`, `inventaire.pointer`, `inventaire.gerer`.
-
-| Route | Rôle |
-|---|---|
-| `GET inventaires` · `GET inventaires/{id}` | Campagnes avec compteurs (`attendus`, `a_pointer`, `presents`, `deplaces`, `manquants`, `hors_perimetre`, `non_references`, `pointes`) ; le détail ajoute les `lignes`. |
-| `POST inventaires` | `{titre, service_id?, type_materiel?, date_limite?, description?}` : fige la liste du matériel actif du périmètre (422 `perimetre_vide` si aucun). |
-| `POST inventaires/{id}/pointer` | `{materiel_id}` ou `{code}` (contenu d'un QR « … SN:xxx ID:12 » ou numéro de série), `statut` (Présent par défaut, Déplacé avec `observation` obligatoire, Manquant). Rejouable. Matériel hors liste → `hors_perimetre` ; code inconnu → « Non référencé ». |
-| `POST inventaires/{id}/cloture` | `{marquer_manquants?}` (défaut vrai) : les matériels non pointés passent à « Manquant ». |
-| `DELETE inventaires/{id}` | Supprime la campagne et ses pointages. |
-
-Sur mobile le pointage fonctionne hors ligne : il est mis en file (opération `pointer`) et rejoué à la synchronisation ; les campagnes ouvertes sont téléchargées à chaque synchronisation.

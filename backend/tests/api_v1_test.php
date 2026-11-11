@@ -47,7 +47,6 @@ $comptes = [ // clé => [login, rôle, nom]
 function nettoyer(PDO $pdo, array $comptes, array $rolesTest): void {
     $pdo->exec("DELETE FROM t_taches WHERE titre LIKE 'ZZ_V1_%' OR titre LIKE '[Préventif] ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_plans_maintenance WHERE titre LIKE 'ZZ_V1_%'");
-    $pdo->exec("DELETE FROM t_inventaires WHERE titre LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_%'");
     $pdo->exec("DELETE FROM t_login_attempts WHERE login LIKE 'zz_v1_%'");
     $pdo->exec("DELETE FROM t_utilisateurs WHERE login LIKE 'zz_v1_new%'");
@@ -443,7 +442,7 @@ try {
     api('DELETE', "taches/$aid", null, $A('gest'));
 
 
-    echo "Renouvellement du matériel\n";
+    echo "Renouvellement du matériel (suggestions)\n";
     $pdo->exec("INSERT INTO t_type_materiel (type, duree_vie_mois) VALUES ('ZZ_V1_RENT', 36)");
     $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie, date_achat) VALUES ('ZZ_V1_RENT', 'ZZ', 'En service', 'ZZ_V1_RN1', CURRENT_DATE - interval '5 years')");
     $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie, date_achat) VALUES ('ZZ_V1_RENT', 'ZZ', 'En service', 'ZZ_V1_RN2', CURRENT_DATE - interval '6 months')");
@@ -454,21 +453,7 @@ try {
     $sug = array_map(fn($x) => $x['materiel']['id'], $r[1]['data'] ?? []);
     check('suggestion : matériel au-delà de sa durée de vie', $r[0] === 200 && in_array($m1, $sug, true));
     check('suggestion : matériel récent absent', !in_array($m2, $sug, true));
-    check('proposition sans critère ni motif → 422', api('POST', 'renouvellements', ['materiel_id' => $m2], $A('admin'))[0] === 422);
-    $r = api('POST', 'renouvellements', ['materiel_id' => $m1, 'cout_estime' => 850], $A('admin'));
-    $rid = $r[1]['data']['id'] ?? 0;
-    check('proposition créée (origine auto, critères figés)', $r[0] === 201 && $r[1]['data']['origine'] === 'auto' && count($r[1]['data']['criteres']) >= 1);
-    check('proposition en double → 409', api('POST', 'renouvellements', ['materiel_id' => $m1], $A('admin'))[0] === 409);
-    check('matériel proposé retiré des suggestions', !in_array($m1, array_map(fn($x) => $x['materiel']['id'], api('GET', 'renouvellements/suggestions', null, $A('admin'))[1]['data']), true));
-    check('refus sans raison → 422', api('POST', "renouvellements/$rid/decision", ['decision' => 'Refusé'], $A('admin'))[0] === 422);
-    check('Proposé → Remplacé interdit → 409', api('POST', "renouvellements/$rid/decision", ['decision' => 'Remplacé'], $A('admin'))[0] === 409);
-    check('décision refusée sans permission', api('POST', "renouvellements/$rid/decision", ['decision' => 'Validé'], $A('tech'))[0] === 403);
-    foreach (['Validé', 'Commandé', 'Remplacé'] as $d) {
-        check("décision « $d »", api('POST', "renouvellements/$rid/decision", ['decision' => $d], $A('admin'))[0] === 200);
-    }
-    check('remplacé : ancien matériel retiré', $pdo->query("SELECT statut FROM t_materiel WHERE id = $m1")->fetchColumn() === 'Retiré');
-    check('liste filtrée par statut', count(api('GET', 'renouvellements?statut=Remplacé', null, $A('admin'))[1]['data'] ?? []) >= 1);
-    $pdo->exec("DELETE FROM t_renouvellements WHERE materiel_id IN ($m1, $m2)");
+    check('propositions retirées : route inconnue', api('POST', 'renouvellements', ['materiel_id' => $m1], $A('admin'))[0] === 404);
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_RN%'");
     $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_RENT'");
 
@@ -502,62 +487,6 @@ try {
     $pdo->exec("DELETE FROM t_taches WHERE titre = '[Préventif] ZZ_V1_PLAN'");
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_M_'");
     $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_MNT'");
-
-    echo "Planning\n";
-    $pdo->exec("INSERT INTO t_type_materiel (type) VALUES ('ZZ_V1_PLN')");
-    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie, date_fin_garantie) VALUES ('ZZ_V1_PLN', 'ZZ', 'En service', 'ZZ_V1_PL', CURRENT_DATE + 3)");
-    $r = api('POST', 'maintenance/plans', ['titre' => 'ZZ_V1_PLANNING', 'type_materiel' => 'ZZ_V1_PLN', 'periodicite_valeur' => 1, 'periodicite_unite' => 'semaine',
-        'prochaine_echeance' => date('Y-m-d', strtotime('+2 days')), 'anticipation_jours' => 0], $A('admin'));
-    $plid = $r[1]['data']['id'] ?? 0;
-    $du = date('Y-m-d'); $au = date('Y-m-d', strtotime('+10 days'));
-    $r = api('GET', "planning?du=$du&au=$au", null, $A('admin'));
-    $ev = $r[1]['data'] ?? [];
-    $plans = array_values(array_filter($ev, fn($e) => $e['type'] === 'plan' && $e['titre'] === 'ZZ_V1_PLANNING'));
-    check('planning : plan hebdomadaire projeté (2 occurrences sur 10 jours)', $r[0] === 200 && count($plans) === 2);
-    check('planning : fin de garantie', count(array_filter($ev, fn($e) => $e['type'] === 'garantie' && str_contains($e['detail'], 'ZZ_V1_PL'))) === 1);
-    check('planning : période trop longue → 422', api('GET', "planning?du=$du&au=" . date('Y-m-d', strtotime('+90 days')), null, $A('admin'))[0] === 422);
-    check('planning : sans jeton → 401', api('GET', 'planning')[0] === 401);
-    $tp = api('POST', 'taches', ['titre' => 'ZZ_V1_PLN_T', 'priorite' => 'Haute', 'service_id' => $svc, 'date_limite' => date('Y-m-d', strtotime('+1 day'))], $A('tech'));
-    $r = api('GET', "planning?du=$du&au=$au", null, $A('admin'));
-    check('planning : échéance de panne listée', count(array_filter($r[1]['data'], fn($e) => $e['type'] === 'echeance' && $e['titre'] === 'ZZ_V1_PLN_T')) === 1 && $tp[0] === 201, $tp[3]);
-    $r = api('GET', "planning?du=$du&au=$au", null, $A('agent'));
-    check('planning : le déclarant ne voit ni plans ni garanties', $r[0] === 200 && !array_filter($r[1]['data'], fn($e) => in_array($e['type'], ['plan', 'garantie'], true)));
-    api('DELETE', "maintenance/plans/$plid", null, $A('admin'));
-    $pdo->exec("DELETE FROM t_taches WHERE titre = 'ZZ_V1_PLN_T'");
-    $pdo->exec("DELETE FROM t_materiel WHERE num_serie = 'ZZ_V1_PL'");
-    $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_PLN'");
-
-    echo "Inventaires\n";
-    $pdo->exec("INSERT INTO t_type_materiel (type) VALUES ('ZZ_V1_INV')");
-    foreach (['A', 'B', 'C'] as $k) { $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_INV', 'ZZ', 'En service', 'ZZ_V1_I$k')"); }
-    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_INV', 'ZZ', 'Retiré', 'ZZ_V1_IR')");
-    $pdo->exec("INSERT INTO t_materiel (type, marque, statut, num_serie) VALUES ('ZZ_V1_AUTRE', 'ZZ', 'En service', 'ZZ_V1_IX')");
-    $idI = fn($k) => (int) $pdo->query("SELECT id FROM t_materiel WHERE num_serie = 'ZZ_V1_I$k'")->fetchColumn();
-    check('inventaire : sans permission → 403', api('GET', 'inventaires', null, $A('agent'))[0] === 403);
-    check('inventaire : périmètre vide → 422', api('POST', 'inventaires', ['titre' => 'ZZ_V1_INV', 'type_materiel' => 'ZZ_V1_RIEN'], $A('admin'))[0] === 422);
-    $r = api('POST', 'inventaires', ['titre' => 'ZZ_V1_INV', 'type_materiel' => 'ZZ_V1_INV'], $A('admin'));
-    $iid = $r[1]['data']['id'] ?? 0;
-    check('inventaire créé : 3 matériels actifs attendus (le retiré est exclu)', $r[0] === 201 && $r[1]['data']['compteurs']['attendus'] === 3 && $r[1]['data']['compteurs']['a_pointer'] === 3);
-    $r = api('POST', "inventaires/$iid/pointer", ['code' => 'étiquette | SN:ZZ_V1_IA | ID:' . $idI('A')], $A('admin'));
-    check('pointage par code QR → Présent', $r[0] === 200 && $r[1]['data']['statut'] === 'Présent' && $r[1]['data']['materiel']['num_serie'] === 'ZZ_V1_IA');
-    check('repointage idempotent', api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_IA'], $A('admin'))[1]['data']['compteurs']['presents'] === 1);
-    check('déplacé sans observation → 422', api('POST', "inventaires/$iid/pointer", ['materiel_id' => $idI('B'), 'statut' => 'Déplacé'], $A('admin'))[0] === 422);
-    $r = api('POST', "inventaires/$iid/pointer", ['materiel_id' => $idI('B'), 'statut' => 'Déplacé', 'observation' => 'Salle 2'], $A('admin'));
-    check('déplacé avec observation', $r[0] === 200 && $r[1]['data']['compteurs']['deplaces'] === 1);
-    $r = api('POST', "inventaires/$iid/pointer", ['materiel_id' => $idI('X')], $A('admin'));
-    check('matériel hors périmètre ajouté', $r[0] === 200 && $r[1]['data']['hors_perimetre'] === true && $r[1]['data']['compteurs']['hors_perimetre'] === 1 && $r[1]['data']['compteurs']['attendus'] === 3);
-    $r = api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_INCONNU'], $A('admin'));
-    check('code inconnu conservé (non référencé), sans doublon', $r[0] === 200 && api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_INCONNU'], $A('admin'))[1]['data']['compteurs']['non_references'] === 1);
-    check('pointage refusé sans permission', api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_IC'], $A('gest'))[0] === 403);
-    $d = api('GET', "inventaires/$iid", null, $A('admin'))[1]['data'];
-    check('détail : lignes et progression', count($d['lignes']) === 5 && $d['compteurs']['pointes'] === 2);
-    check('clôture sans permission → 403', api('POST', "inventaires/$iid/cloture", [], $A('tech'))[0] === 403);
-    $r = api('POST', "inventaires/$iid/cloture", [], $A('admin'));
-    check('clôture : le non pointé devient manquant', $r[0] === 200 && $r[1]['meta']['marques_manquants'] === 1 && $r[1]['data']['compteurs']['manquants'] === 1 && $r[1]['data']['statut'] === 'Clos');
-    check('pointage après clôture → 409', api('POST', "inventaires/$iid/pointer", ['code' => 'ZZ_V1_IC'], $A('admin'))[0] === 409);
-    check('inventaire supprimé', api('DELETE', "inventaires/$iid", null, $A('admin'))[0] === 200);
-    $pdo->exec("DELETE FROM t_materiel WHERE num_serie LIKE 'ZZ_V1_I_' OR num_serie = 'ZZ_V1_IR'");
-    $pdo->exec("DELETE FROM t_type_materiel WHERE type = 'ZZ_V1_INV'");
 
     echo "Pont avec la session du site web\n";
     $web = bin2hex(random_bytes(32));
