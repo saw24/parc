@@ -17,6 +17,6 @@ class ParcApp : Application() {
         api = ApiClient(store)
         repo = Repository(this, api, store)
         Alertes.creerCanal(this)
-        if (store.loggedIn) Alertes.planifierScrutation(this)
+        if (store.loggedIn) { Alertes.planifierScrutation(this); org.parcit.mobile.data.SyncManager.planifier(this) }
     }
 }

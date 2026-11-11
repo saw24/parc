@@ -13,7 +13,10 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     private inline fun <reified T> JsonObject.data(): T = json.decodeFromJsonElement(this["data"]!!)
 
     // ------------------------------------------------------------------ Mode hors ligne (lecture)
-    private val cache = CacheLocal(ctx, json)
+    internal val cache = CacheLocal(ctx, json)
+    val sync = SyncManager(this, api, store, cache, json, ctx)
+    /** Message à montrer à l'utilisateur (ex. « enregistré hors ligne »). */
+    var info: (String) -> Unit = {}
     /** Appelé avec null quand le serveur répond, ou avec l'heure des données affichées quand on retombe sur la copie locale. */
     var etatReseau: (Long?) -> Unit = {}
 
@@ -46,8 +49,12 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         store.refreshToken = d["refresh_token"]!!.jsonPrimitive.content
         store.accessToken = d["access_token"]!!.jsonPrimitive.content
         store.userJson = d["utilisateur"].toString()
-        planifierEnvoi()
-        return json.decodeFromJsonElement(d["utilisateur"]!!)
+        val u: Utilisateur = json.decodeFromJsonElement(d["utilisateur"]!!)
+        // Les envois en attente appartiennent à un compte : jamais rejoués sous un autre.
+        if (store.opsUserId != 0 && store.opsUserId != u.id) { sync.viderFile(); store.outboxJson = null }
+        store.opsUserId = u.id; store.pannesSince = null
+        planifierEnvoi(); SyncManager.planifier(ctx)
+        return u
     }
 
     fun utilisateurLocal(): Utilisateur? = store.userJson?.let { runCatching { json.decodeFromString<Utilisateur>(it) }.getOrNull() }
@@ -63,7 +70,7 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
 
     suspend fun deconnecter() {
         runCatching { api.post("auth/logout", buildJsonObject { }) }
-        store.clearSession(); cache.vider()
+        store.clearSession(); cache.vider(); store.pannesSince = null; SyncManager.arreter(ctx)
     }
 
     // ------------------------------------------------------------------ Pannes
@@ -82,7 +89,38 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         return out
     }
 
-    suspend fun tache(id: Int): Tache = avecCache("tache_$id", Tache.serializer()) { api.get("taches/$id").data() }
+    suspend fun tache(id: Int): Tache = try {
+        avecCache("tache_$id", Tache.serializer()) { api.get("taches/$id").data() }
+    } catch (e: ApiException) {
+        // Hors ligne sans fiche détaillée : l'entrée de la liste synchronisée (sans l'historique).
+        if (e.reseau) tacheLocale(id)?.also { etatReseau(System.currentTimeMillis()) } ?: throw e else throw e
+    }
+
+    // ------------------------------------------------------------------ Modifications possibles hors ligne
+    private val serListe = ListSerializer(Tache.serializer())
+
+    private fun tacheLocale(id: Int): Tache? = cache.lire("tache_$id", Tache.serializer())?.first
+        ?: listOf("pannes_toutes", "mes_pannes").firstNotNullOfOrNull { k -> cache.lire(k, serListe)?.first?.firstOrNull { it.id == id } }
+
+    private fun majTacheCache(id: Int, f: (Tache) -> Tache) {
+        cache.lire("tache_$id", Tache.serializer())?.first?.let { cache.ecrire("tache_$id", Tache.serializer(), f(it)) }
+        for (cle in listOf("pannes_toutes", "mes_pannes")) cache.lire(cle, serListe)?.first?.let { l -> cache.ecrire(cle, serListe, l.map { if (it.id == id) f(it) else it }) }
+    }
+
+    private fun operation(type: String, tacheId: Int, libelle: String, payload: JsonObject = JsonObject(emptyMap())) =
+        Operation(UUID.randomUUID().toString(), type, tacheId, "$libelle ${tacheLocale(tacheId)?.reference ?: "la panne"}", System.currentTimeMillis(), payload)
+
+    /** Essaie en ligne ; sans réseau, met la modification en file (rejouée à la synchronisation) et l'applique à la copie locale. */
+    private suspend fun action(op: Operation, optimiste: (Tache) -> Tache, appel: suspend () -> Unit): Tache {
+        try { appel() } catch (e: ApiException) {
+            if (!e.reseau) throw e
+            sync.enfiler(op); majTacheCache(op.tacheId, optimiste)
+            info("Enregistré hors ligne : sera envoyé à la prochaine synchronisation.")
+            etatReseau(System.currentTimeMillis())
+            return tacheLocale(op.tacheId) ?: throw e
+        }
+        return tache(op.tacheId)
+    }
 
     suspend fun referentiels(): Referentiels = avecCache("referentiels", Referentiels.serializer()) { api.get("referentiels").data() }
 
@@ -92,23 +130,23 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         catch (e: ApiException) { if (e.status == 403) emptyList() else throw e }
     }
 
-    suspend fun commenter(id: Int, texte: String): Tache {
-        api.post("taches/$id/commentaires", buildJsonObject { put("commentaire", texte) })
-        return tache(id)
-    }
+    suspend fun commenter(id: Int, texte: String): Tache = action(
+        operation("commenter", id, "Commentaire sur", buildJsonObject { put("commentaire", texte) }), { it },
+    ) { api.post("taches/$id/commentaires", buildJsonObject { put("commentaire", texte) }) }
 
-    suspend fun annuler(t: Tache, motif: String): Tache {
-        api.post("taches/${t.id}/statut", buildJsonObject {
-            put("statut", "Annulé"); put("version", t.version); put("commentaire", motif)
-        })
-        return tache(t.id)
-    }
+    suspend fun annuler(t: Tache, motif: String): Tache = action(
+        operation("annuler", t.id, "Annuler", buildJsonObject { put("statut", "Annulé"); put("commentaire", motif) }),
+        { it.copy(statut = "Annulé") },
+    ) { api.post("taches/${t.id}/statut", buildJsonObject { put("statut", "Annulé"); put("version", t.version); put("commentaire", motif) }) }
 
     /** Modification partielle d'une panne (seuls les champs fournis changent) ; la version protège contre les écrasements. */
-    suspend fun modifierPanne(t: Tache, champs: JsonObject): Tache {
-        api.patch("taches/${t.id}", JsonObject(champs + ("version" to JsonPrimitive(t.version))))
-        return tache(t.id)
-    }
+    suspend fun modifierPanne(t: Tache, champs: JsonObject): Tache = action(
+        operation("modifier", t.id, "Modifier", champs),
+        { x -> x.copy(
+            titre = champs["titre"]?.jsonPrimitive?.contentOrNull ?: x.titre,
+            description = if (champs.containsKey("description")) champs["description"]?.jsonPrimitive?.contentOrNull else x.description,
+            priorite = champs["priorite"]?.jsonPrimitive?.contentOrNull ?: x.priorite) },
+    ) { api.patch("taches/${t.id}", JsonObject(champs + ("version" to JsonPrimitive(t.version)))) }
 
     suspend fun supprimerPanne(id: Int) { api.delete("taches/$id") }
 
@@ -145,25 +183,51 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
             "ouvertes" -> { p["ouvertes"] = "1"; if (agentId != null) p["assigne"] = "$agentId" }
             else -> {   // « toutes » : tous les statuts, y compris terminées et annulées
                 if (agentId != null) p["assigne"] = "$agentId"
-                val aujourdhui = java.time.LocalDate.now()
-                when (periode) {
-                    "jour" -> p["depuis"] = aujourdhui.toString()
-                    "semaine" -> p["depuis"] = aujourdhui.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)).toString()
-                    "mois" -> p["depuis"] = aujourdhui.withDayOfMonth(1).toString()
-                }
+                debutPeriode(periode)?.let { p["depuis"] = it.toString() }
             }
         }
-        val cle = "interv_${filtre}_${if (filtre == "toutes") periode else "x"}_${if (filtre == "ouvertes" || filtre == "toutes") agentId ?: 0 else 0}"
-        val ser = ListSerializer(Tache.serializer())
-        val liste: List<Tache> = if (q.isBlank()) avecCache(cle, ser) { pages<Tache>("taches", p, max = 1000) }
-        else try { pages<Tache>("taches", p + ("q" to q.trim()), max = 1000) } catch (e: ApiException) {
-            // Hors ligne : recherche dans la dernière copie de la même vue.
-            val c = if (e.reseau) cache.lire(cle, ser) else null
-            if (c == null) throw e
-            etatReseau(c.second)
-            c.first.filter { it.titre.contains(q.trim(), true) || (it.reference ?: "").contains(q.trim(), true) }
+        if (q.isNotBlank()) p["q"] = q.trim()
+        return try {
+            val liste: List<Tache> = pages("taches", p, max = 1000)
+            etatReseau(null)
+            if (recentDabord) liste else liste.reversed()
+        } catch (e: ApiException) {
+            // Hors ligne : mêmes filtres appliqués à la copie complète téléchargée par la synchronisation.
+            if (!e.reseau) throw e
+            interventionsLocales(filtre, q, periode, agentId, recentDabord) ?: throw e
         }
-        return if (recentDabord) liste else liste.reversed()
+    }
+
+    private fun debutPeriode(periode: String): java.time.LocalDate? {
+        val aujourdhui = java.time.LocalDate.now()
+        return when (periode) {
+            "jour" -> aujourdhui
+            "semaine" -> aujourdhui.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+            "mois" -> aujourdhui.withDayOfMonth(1)
+            else -> null
+        }
+    }
+
+    private fun interventionsLocales(filtre: String, q: String, periode: String, agentId: Int?, recentDabord: Boolean): List<Tache>? {
+        val copie = cache.lire("pannes_toutes", serListe) ?: return null
+        etatReseau(store.derniereSync.takeIf { it > 0 } ?: copie.second)
+        val moi = utilisateurLocal()?.id
+        val ouverte = { t: Tache -> t.statut != "Terminé" && t.statut != "Annulé" }
+        var l = copie.first
+        l = when (filtre) {
+            "file" -> l.filter { it.enFile && ouverte(it) }
+            "moi" -> l.filter { it.assigne?.id == moi && ouverte(it) }
+            "ouvertes" -> l.filter(ouverte)
+            else -> l
+        }
+        if (agentId != null && (filtre == "ouvertes" || filtre == "toutes")) l = l.filter { it.assigne?.id == agentId }
+        if (filtre == "toutes") debutPeriode(periode)?.let { d -> l = l.filter { (it.dates.creation ?: "").take(10) >= d.toString() } }
+        if (q.isNotBlank()) {
+            val m = q.trim()
+            l = l.filter { it.titre.contains(m, true) || (it.reference ?: "").contains(m, true) || (it.description ?: "").contains(m, true) }
+        }
+        l = l.sortedByDescending { it.updatedAt ?: it.dates.creation ?: "" }
+        return if (recentDabord) l else l.reversed()
     }
 
     /** Envoie le jeton push de cet appareil au serveur (sans effet si Firebase n'est pas configuré). */
@@ -172,47 +236,59 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         api.put("appareils/courant", buildJsonObject { put("fcm_token", t); put("version_app", org.parcit.mobile.BuildConfig.VERSION_NAME) })
     }
 
-    suspend fun agents(): List<Agent> = api.get("agents").data()
+    suspend fun agents(): List<Agent> = avecCache("agents", ListSerializer(Agent.serializer())) { api.get("agents").data() }
 
     suspend fun affecter(t: Tache, assigneId: Int, commentaire: String?): Tache {
-        api.post("taches/${t.id}/affecter", buildJsonObject {
-            put("assigne_id", assigneId); put("version", t.version)
-            if (!commentaire.isNullOrBlank()) put("commentaire", commentaire)
-        })
-        return tache(t.id)
+        val payload = buildJsonObject { put("assigne_id", assigneId); if (!commentaire.isNullOrBlank()) put("commentaire", commentaire) }
+        val nom = cache.lire("agents", ListSerializer(Agent.serializer()))?.first?.firstOrNull { it.id == assigneId }?.nom
+        return action(operation("affecter", t.id, "Affecter", payload), { it.copy(assigne = Ref(assigneId, nom), enFile = false) }) {
+            api.post("taches/${t.id}/affecter", JsonObject(payload + ("version" to JsonPrimitive(t.version))))
+        }
     }
 
     suspend fun changerStatut(t: Tache, statut: String, motif: String?, relance: String?, commentaire: String?): Tache {
-        api.post("taches/${t.id}/statut", buildJsonObject {
-            put("statut", statut); put("version", t.version)
+        val payload = buildJsonObject {
+            put("statut", statut)
             if (!motif.isNullOrBlank()) put("motif_attente", motif)
             if (!relance.isNullOrBlank()) put("date_relance", relance)
             if (!commentaire.isNullOrBlank()) put("commentaire", commentaire)
-        })
-        return tache(t.id)
+        }
+        return action(operation("statut", t.id, "Passer à « $statut » :", payload), { it.copy(statut = statut) }) {
+            api.post("taches/${t.id}/statut", JsonObject(payload + ("version" to JsonPrimitive(t.version))))
+        }
     }
 
     suspend fun commenterEquipe(id: Int, texte: String, visibleDeclarant: Boolean): Tache {
-        api.post("taches/$id/commentaires", buildJsonObject { put("commentaire", texte); put("visible_declarant", visibleDeclarant) })
-        return tache(id)
+        val payload = buildJsonObject { put("commentaire", texte); put("visible_declarant", visibleDeclarant) }
+        return action(operation("commenter", id, "Commentaire sur", payload), { it }) { api.post("taches/$id/commentaires", payload) }
     }
 
     // ------------------------------------------------------------------ Parc
     suspend fun parc(q: String, statut: String?): List<Fiche> {
         val p = mutableMapOf<String, String>()
         if (!statut.isNullOrBlank()) p["statut"] = statut
-        val cle = "parc_${statut ?: "tous"}"
+        if (q.isNotBlank()) p["q"] = q.trim()
         val ser = ListSerializer(Fiche.serializer())
-        if (q.isBlank()) return avecCache(cle, ser) { pages<Fiche>("materiel", p) }
-        return try { pages<Fiche>("materiel", p + ("q" to q.trim())) } catch (e: ApiException) {
-            val c = if (e.reseau) cache.lire(cle, ser) else null
-            if (c == null) throw e
-            etatReseau(c.second)
-            c.first.filter { f -> listOfNotNull(f.libelle, f.marque, f.modele, f.numSerie, f.type).any { it.contains(q.trim(), true) } }
+        return try {
+            val liste: List<Fiche> = pages("materiel", p)
+            if (statut.isNullOrBlank() && q.isBlank()) cache.ecrire("parc_tous", ser, liste)   // copie complète
+            etatReseau(null)
+            liste
+        } catch (e: ApiException) {
+            val c = (if (e.reseau) cache.lire("parc_tous", ser) else null) ?: throw e
+            etatReseau(store.derniereSync.takeIf { it > 0 } ?: c.second)
+            c.first
+                .filter { statut.isNullOrBlank() || it.statut == statut }
+                .filter { f -> q.isBlank() || listOfNotNull(f.libelle, f.marque, f.modele, f.numSerie, f.type).any { it.contains(q.trim(), true) } }
         }
     }
 
-    suspend fun fiche(id: Int): Fiche = avecCache("fiche_$id", Fiche.serializer()) { api.get("materiel/$id").data() }
+    suspend fun fiche(id: Int): Fiche = try {
+        avecCache("fiche_$id", Fiche.serializer()) { api.get("materiel/$id").data() }
+    } catch (e: ApiException) {
+        // Fiche jamais ouverte en ligne : l'entrée de la liste du parc synchronisée.
+        if (e.reseau) cache.lire("parc_tous", ListSerializer(Fiche.serializer()))?.first?.firstOrNull { it.id == id } ?: throw e else throw e
+    }
     suspend fun affectations(id: Int): List<Affectation> = avecCache("affectations_$id", ListSerializer(Affectation.serializer())) { api.get("materiel/$id/affectations").data() }
     suspend fun pannesDuMateriel(id: Int): List<Tache> = avecCache("pannes_materiel_$id", ListSerializer(Tache.serializer())) { api.get("materiel/$id/pannes").data() }
     suspend fun scanner(code: String): Fiche = api.get("materiel/scan", mapOf("code" to code)).data()
@@ -250,10 +326,10 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     }
 
     /** « Je prends » : atomique côté serveur. Lève ApiException(409) si un collègue a été plus rapide. */
-    suspend fun prendre(id: Int): Tache {
-        api.post("taches/$id/prendre", buildJsonObject { })
-        return tache(id)
-    }
+    suspend fun prendre(id: Int): Tache = action(
+        operation("prendre", id, "Prendre en charge"),
+        { it.copy(assigne = utilisateurLocal()?.let { u -> Ref(u.id, u.nom) }, enFile = false, actions = it.actions.copy(prendre = false)) },
+    ) { api.post("taches/$id/prendre", buildJsonObject { }) }
 
     // ------------------------------------------------------------------ Envoi différé
     fun brouillons(): List<Brouillon> = store.outboxJson?.let {

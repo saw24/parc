@@ -26,6 +26,7 @@ sealed interface Ecran {
     data object Utilisateurs : Ecran
     data class UtilisateurForm(val id: Int?) : Ecran
     data object Services : Ecran
+    data object Sync : Ecran
 }
 
 /** Écrans principaux (barre du bas) : on y revient avec « Retour ». */
@@ -52,6 +53,9 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     private var scrutation: Job? = null
     /** Non nul quand on consulte la copie locale faute de réseau : heure (ms) des données affichées. */
     var horsLigne by mutableStateOf<Long?>(null)
+    /** Réseau disponible sur l'appareil (le basculement en ligne / hors ligne est automatique). */
+    var reseau by mutableStateOf(true)
+    var sync by mutableStateOf(SyncEtat())
 
     // Vue agent IT
     var filtre by mutableStateOf("file")
@@ -86,9 +90,14 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
 
     init {
         app.repo.etatReseau = { horsLigne = it }
+        app.repo.info = { message = it }
+        viewModelScope.launch { app.repo.sync.etat.collect { sync = it } }
         runCatching {
-            app.getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: android.net.Network) { viewModelScope.launch { if (horsLigne != null && utilisateur != null) reessayer() } }
+            val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+            reseau = cm.activeNetwork != null
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { viewModelScope.launch { reseau = true; if (utilisateur != null) synchroniser() } }
+                override fun onLost(network: android.net.Network) { viewModelScope.launch { reseau = cm.activeNetwork != null } }
             })
         }
         verifierMiseAJour()
@@ -102,6 +111,15 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
             else -> e.message
         } else "Erreur inattendue."
     }
+
+    /** Synchronisation dans les deux sens, en tâche de fond (l'interface reste utilisable) ; recharge l'écran ensuite. */
+    fun synchroniser() {
+        if (utilisateur == null) return
+        viewModelScope.launch { if (app.repo.sync.synchroniser()) reessayer() }
+    }
+    fun operationsEnAttente() = app.repo.sync.operations()
+    fun abandonnerOperation(id: String) = app.repo.sync.abandonner(id)
+    fun reessayerOperation(id: String) { app.repo.sync.reessayer(id); synchroniser() }
 
     /** Recharge l'écran courant (retour du réseau, ou bouton « Réessayer » du bandeau hors ligne). */
     fun reessayer() {
@@ -124,6 +142,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun enAvantPlan(oui: Boolean) {
         scrutation?.cancel()
         if (!oui) return
+        if (utilisateur != null && System.currentTimeMillis() - (sync.derniere ?: 0L) > 300_000) synchroniser()
         scrutation = viewModelScope.launch {
             while (isActive) {
                 if (utilisateur != null) try { rafraichirNotifications() } catch (e: Throwable) { /* silencieux : réessayé au tour suivant */ }
@@ -177,6 +196,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun connecter(serveur: String, login: String, mdp: String) = lancer {
         utilisateur = repo.login(serveur, login.trim(), mdp)
         runCatching { repo.enregistrerPush() }
+        synchroniser()
         Alertes.planifierScrutation(app)
         this.serveur = app.store.serverUrl
         ecran = Ecran.Liste
@@ -216,7 +236,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
             e is Ecran.UtilisateurForm -> Ecran.Utilisateurs
             e is Ecran.MaterielForm && e.id != null -> Ecran.MaterielDetail(e.id)
             e is Ecran.Scan || e is Ecran.MaterielForm || e is Ecran.MaterielDetail -> Ecran.Parc
-            e is Ecran.Detail || e is Ecran.Declarer -> origine
+            e is Ecran.Detail || e is Ecran.Declarer || e is Ecran.Sync -> origine
             else -> Ecran.Liste
         }
         recharger()
@@ -233,6 +253,7 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun estEquipe(t: Tache) = utilisateur?.voitInterventions == true || t.actions.changerStatut || t.actions.affecter
 
     fun aller(e: Ecran) {
+        if (e == Ecran.Sync) origine = if (ecran.principal) ecran else Ecran.Liste
         ecran = e; detail = null
         when (e) { Ecran.Interventions -> chargerInterventions(); Ecran.Parc -> chargerParc(); Ecran.Liste -> actualiser(); Ecran.Notifications -> ouvrirNotifications(); Ecran.Utilisateurs -> chargerUtilisateurs(); Ecran.Services -> chargerServices(); else -> {} }
     }

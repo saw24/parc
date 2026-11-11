@@ -80,6 +80,7 @@ fun Root(vm: AppViewModel) {
                 Ecran.Utilisateurs -> { BackHandler { vm.retour() }; EcranUtilisateurs(vm) }
                 is Ecran.UtilisateurForm -> { BackHandler { vm.retour() }; EcranFormUtilisateur(vm, e.id) }
                 Ecran.Services -> { BackHandler { vm.retour() }; EcranServices(vm) }
+                Ecran.Sync -> { BackHandler { vm.retour() }; EcranSync(vm) }
             }
             vm.alerte?.let { n ->
                 AlertDialog(onDismissRequest = { vm.fermerAlerte() }, icon = { Icon(iconeNotification(n.type), null) },
@@ -97,21 +98,30 @@ fun Root(vm: AppViewModel) {
             }
             if (vm.chargement && vm.ecran != Ecran.Interventions) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
-        if (u != null) vm.horsLigne?.let { BandeauHorsLigne(it) { vm.reessayer() } }
+        if (u != null) {
+            if (vm.sync.enCours) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+            if (!vm.reseau || vm.horsLigne != null) BandeauEtat(true, "Hors ligne · dernière synchro ${heureCourte(vm.sync.derniere ?: vm.horsLigne ?: System.currentTimeMillis())}", "Détails") { vm.aller(Ecran.Sync) }
+            else if (vm.sync.enAttente > 0 && !vm.sync.enCours && vm.ecran != Ecran.Sync) BandeauEtat(false, "${vm.sync.enAttente} modification(s) en attente d'envoi", "Synchroniser") { vm.synchroniser() }
+        }
         }
     }
     }
 }
 
-/** Bandeau affiché au-dessus de la barre du bas quand les données viennent de la copie locale. */
+private fun heureCourte(ms: Long) = java.text.SimpleDateFormat("dd/MM 'à' HH:mm", java.util.Locale.FRANCE).format(java.util.Date(ms))
+
+/** Bandeau au-dessus de la barre du bas : hors ligne (copie locale) ou modifications en attente d'envoi. */
 @Composable
-private fun BandeauHorsLigne(depuis: Long, reessayer: () -> Unit) {
-    val quand = java.text.SimpleDateFormat("dd/MM 'à' HH:mm", java.util.Locale.FRANCE).format(java.util.Date(depuis))
-    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+private fun BandeauEtat(horsLigne: Boolean, texte: String, action: String, onAction: () -> Unit) {
+    Surface(
+        color = if (horsLigne) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = if (horsLigne) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Rounded.CloudOff, null, Modifier.size(18.dp))
-            Text("Hors ligne · données du $quand", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-            TextButton(reessayer) { Text("Réessayer") }
+            Icon(if (horsLigne) Icons.Rounded.CloudOff else Icons.Rounded.CloudSync, null, Modifier.size(18.dp))
+            Text(texte, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            TextButton(onAction) { Text(action) }
         }
     }
 }
@@ -202,6 +212,8 @@ fun EcranListe(vm: AppViewModel) {
                             onClick = { menu = false; vm.ouvrirUtilisateurs() })
                         if (vm.utilisateur?.gereServices == true) DropdownMenuItem(text = { Text("Services") }, leadingIcon = { Icon(Icons.Rounded.Business, null) },
                             onClick = { menu = false; vm.ouvrirServices() })
+                        DropdownMenuItem(text = { Text(if (vm.sync.enAttente > 0) "Synchronisation (${vm.sync.enAttente})" else "Synchronisation") },
+                            leadingIcon = { Icon(Icons.Rounded.Sync, null) }, onClick = { menu = false; vm.aller(Ecran.Sync) })
                         DropdownMenuItem(text = { Text(if (vm.sombre) "Thème clair" else "Thème sombre") },
                             leadingIcon = { Icon(if (vm.sombre) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, null) },
                             onClick = { vm.basculerTheme() })

@@ -57,6 +57,18 @@ class SecureStore(context: Context) {
         get() = getSecret("user"); set(v) = putSecret("user", v)
     var outboxJson: String?
         get() = getSecret("outbox"); set(v) = putSecret("outbox", v)
+    /** Modifications faites hors ligne, en attente d'envoi (voir SyncManager). */
+    var opsJson: String?
+        get() = getSecret("ops"); set(v) = putSecret("ops", v)
+    /** Compte auquel appartiennent les envois en attente : jamais rejoués sous un autre compte. */
+    var opsUserId: Int
+        get() = prefs.getInt("ops_user", 0); set(v) = prefs.edit().putInt("ops_user", v).apply()
+    /** Heure (ms) de la dernière synchronisation complète réussie. */
+    var derniereSync: Long
+        get() = prefs.getLong("derniere_sync", 0); set(v) = prefs.edit().putLong("derniere_sync", v).apply()
+    /** Heure serveur du dernier téléchargement des pannes (synchronisation incrémentale). */
+    var pannesSince: String?
+        get() = prefs.getString("pannes_since", null); set(v) = prefs.edit().putString("pannes_since", v).apply()
 
     /** Dernière notification déjà présentée à l'utilisateur (évite de la signaler deux fois). */
     var dernierNotifId: Long
