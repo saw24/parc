@@ -139,9 +139,9 @@ fun EcranFiche(vm: AppViewModel) {
 fun EcranFormMateriel(vm: AppViewModel, id: Int?) {
     val f = if (id != null) vm.fiche?.takeIf { it.id == id } else null
     var type by remember { mutableStateOf(f?.type ?: "") }
-    var marque by remember { mutableStateOf(f?.marque ?: "") }
-    var modele by remember { mutableStateOf(f?.modele ?: "") }
-    var serie by remember { mutableStateOf(f?.numSerie ?: "") }
+    var marque by remember { mutableStateOf(f?.marque ?: vm.prefillEtiquette?.marque ?: "") }
+    var modele by remember { mutableStateOf(f?.modele ?: vm.prefillEtiquette?.modele ?: "") }
+    var serie by remember { mutableStateOf(f?.numSerie ?: vm.prefillEtiquette?.numSerie ?: "") }
     var achat by remember { mutableStateOf(f?.dateAchat ?: "") }
     var statut by remember { mutableStateOf(f?.statut?.ifBlank { null } ?: "En service") }
     var service by remember { mutableStateOf(f?.service?.let { s -> s.id?.let { Service(it, s.nom ?: "") } }) }

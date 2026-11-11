@@ -302,7 +302,25 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
         }
     }
 
-    fun ouvrirFormulaireMateriel(id: Int?) {
+    var dernierTexteLu by mutableStateOf("")
+    var prefillEtiquette by mutableStateOf<InfosEtiquette?>(null)
+
+    /** Cherche le matériel décrit par une étiquette : série exacte, puis série partielle, modèle, marque. */
+    fun chercherParEtiquette(i: InfosEtiquette) = lancer {
+        if (i.numSerie.length >= 4) {
+            try { ouvrirFiche(repo.scanner(i.numSerie).id); return@lancer } catch (e: ApiException) { if (e.status != 404) throw e }
+        }
+        for (q in listOf(i.numSerie, i.modele, i.marque).filter { it.length >= 3 }) {
+            val liste = repo.parc(q, null)
+            if (liste.size == 1) { ouvrirFiche(liste[0].id); return@lancer }
+            if (liste.isNotEmpty()) { ecran = Ecran.Parc; rechercheParc = q; statutParc = null; parc = liste; message = "${liste.size} matériel(s) correspondent à « $q »."; return@lancer }
+        }
+        message = "Aucun matériel du parc ne correspond. Vous pouvez le créer depuis cette lecture."
+    }
+    fun creerDepuisEtiquette(i: InfosEtiquette) { prefillEtiquette = i; ouvrirFormulaireMateriel(null, i) }
+
+    fun ouvrirFormulaireMateriel(id: Int?, prefill: InfosEtiquette? = null) {
+        prefillEtiquette = prefill
         ecran = Ecran.MaterielForm(id)
         lancer(chargeur = false) {
             referentiels = repo.referentiels()
