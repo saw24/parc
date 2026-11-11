@@ -63,7 +63,8 @@ fun Root(vm: AppViewModel) {
             }
         },
     ) { pad ->
-        Box(Modifier.padding(pad).then(if (barre) Modifier else Modifier.navigationBarsPadding()).fillMaxSize()) {
+        Column(Modifier.padding(pad).then(if (barre) Modifier else Modifier.navigationBarsPadding()).fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             if (u == null) EcranConnexion(vm)
             else when (val e = vm.ecran) {
                 Ecran.Liste -> EcranListe(vm)
@@ -96,7 +97,22 @@ fun Root(vm: AppViewModel) {
             }
             if (vm.chargement && vm.ecran != Ecran.Interventions) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
+        if (u != null) vm.horsLigne?.let { BandeauHorsLigne(it) { vm.reessayer() } }
+        }
     }
+    }
+}
+
+/** Bandeau affiché au-dessus de la barre du bas quand les données viennent de la copie locale. */
+@Composable
+private fun BandeauHorsLigne(depuis: Long, reessayer: () -> Unit) {
+    val quand = java.text.SimpleDateFormat("dd/MM 'à' HH:mm", java.util.Locale.FRANCE).format(java.util.Date(depuis))
+    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Rounded.CloudOff, null, Modifier.size(18.dp))
+            Text("Hors ligne · données du $quand", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            TextButton(reessayer) { Text("Réessayer") }
+        }
     }
 }
 

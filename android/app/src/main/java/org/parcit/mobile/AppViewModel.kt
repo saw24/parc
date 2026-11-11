@@ -50,6 +50,8 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     /** Pop-up affiché quand une nouvelle notification arrive pendant que l'application est ouverte. */
     var alerte by mutableStateOf<AppNotification?>(null)
     private var scrutation: Job? = null
+    /** Non nul quand on consulte la copie locale faute de réseau : heure (ms) des données affichées. */
+    var horsLigne by mutableStateOf<Long?>(null)
 
     // Vue agent IT
     var filtre by mutableStateOf("file")
@@ -83,6 +85,12 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     var miseAJour by mutableStateOf<Config?>(null)
 
     init {
+        app.repo.etatReseau = { horsLigne = it }
+        runCatching {
+            app.getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { viewModelScope.launch { if (horsLigne != null && utilisateur != null) reessayer() } }
+            })
+        }
         verifierMiseAJour()
         app.api.onSessionLost = { utilisateur = null; taches = emptyList(); message = "Session expirée, reconnectez-vous." }
     }
@@ -90,8 +98,21 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     private fun erreur(e: Throwable) {
         message = if (e is ApiException) when (e.code) {
             "app_obsolete" -> "Cette version de l'application n'est plus supportée. Mettez-la à jour."
+            "reseau" -> "Pas de réseau : cette action nécessite une connexion."
             else -> e.message
         } else "Erreur inattendue."
+    }
+
+    /** Recharge l'écran courant (retour du réseau, ou bouton « Réessayer » du bandeau hors ligne). */
+    fun reessayer() {
+        actualiser()
+        when (val e = ecran) {
+            Ecran.Interventions -> chargerInterventions(avecBarre = true)
+            Ecran.Parc -> chargerParc()
+            Ecran.Notifications -> ouvrirNotifications()
+            is Ecran.Detail -> lancer(chargeur = false) { detail = repo.tache(e.id) }
+            else -> {}
+        }
     }
 
     private fun lancer(chargeur: Boolean = true, bloc: suspend () -> Unit) = viewModelScope.launch {

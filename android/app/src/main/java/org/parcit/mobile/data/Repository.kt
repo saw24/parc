@@ -12,9 +12,29 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
 
     private inline fun <reified T> JsonObject.data(): T = json.decodeFromJsonElement(this["data"]!!)
 
+    // ------------------------------------------------------------------ Mode hors ligne (lecture)
+    private val cache = CacheLocal(ctx, json)
+    /** Appelé avec null quand le serveur répond, ou avec l'heure des données affichées quand on retombe sur la copie locale. */
+    var etatReseau: (Long?) -> Unit = {}
+
+    /** Réseau d'abord ; sans réseau, dernière copie connue (si elle existe). Une vraie erreur du serveur reste une erreur. */
+    private suspend fun <T> avecCache(cle: String, ser: kotlinx.serialization.KSerializer<T>, charger: suspend () -> T): T {
+        try {
+            val v = charger()
+            cache.ecrire(cle, ser, v); etatReseau(null)
+            return v
+        } catch (e: ApiException) {
+            if (!e.reseau) throw e
+            val c = cache.lire(cle, ser) ?: throw e
+            etatReseau(c.second)
+            return c.first
+        }
+    }
+
     // ------------------------------------------------------------------ Session
     suspend fun login(server: String, login: String, password: String): Utilisateur {
         store.serverUrl = server
+        cache.vider()
         val r = api.post("auth/login", buildJsonObject {
             put("login", login); put("password", password)
             putJsonObject("appareil") {
@@ -33,18 +53,23 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     fun utilisateurLocal(): Utilisateur? = store.userJson?.let { runCatching { json.decodeFromString<Utilisateur>(it) }.getOrNull() }
 
     suspend fun rafraichirProfil(): Utilisateur {
-        val u: Utilisateur = api.get("me").data()
+        val u: Utilisateur = try { api.get("me").data() } catch (e: ApiException) {
+            if (e.reseau) utilisateurLocal()?.let { return it }
+            throw e
+        }
         store.userJson = json.encodeToString(Utilisateur.serializer(), u)
         return u
     }
 
     suspend fun deconnecter() {
         runCatching { api.post("auth/logout", buildJsonObject { }) }
-        store.clearSession()
+        store.clearSession(); cache.vider()
     }
 
     // ------------------------------------------------------------------ Pannes
-    suspend fun mesDeclarations(): List<Tache> {
+    suspend fun mesDeclarations(): List<Tache> = avecCache("mes_pannes", ListSerializer(Tache.serializer())) { mesDeclarationsReseau() }
+
+    private suspend fun mesDeclarationsReseau(): List<Tache> {
         val out = mutableListOf<Tache>()
         var cursor: String? = null
         do {
@@ -57,14 +82,15 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         return out
     }
 
-    suspend fun tache(id: Int): Tache = api.get("taches/$id").data()
+    suspend fun tache(id: Int): Tache = avecCache("tache_$id", Tache.serializer()) { api.get("taches/$id").data() }
 
-    suspend fun referentiels(): Referentiels = api.get("referentiels").data()
+    suspend fun referentiels(): Referentiels = avecCache("referentiels", Referentiels.serializer()) { api.get("referentiels").data() }
 
     /** Le matériel que l'utilisateur peut voir ; liste vide si son rôle n'a pas accès au parc. */
-    suspend fun mesMateriels(): List<Materiel> = try {
-        api.get("materiel", mapOf("assigne" to "moi", "limit" to "100")).data()
-    } catch (e: ApiException) { if (e.status == 403) emptyList() else throw e }
+    suspend fun mesMateriels(): List<Materiel> = avecCache("mes_materiels", ListSerializer(Materiel.serializer())) {
+        try { api.get("materiel", mapOf("assigne" to "moi", "limit" to "100")).data<List<Materiel>>() }
+        catch (e: ApiException) { if (e.status == 403) emptyList() else throw e }
+    }
 
     suspend fun commenter(id: Int, texte: String): Tache {
         api.post("taches/$id/commentaires", buildJsonObject { put("commentaire", texte) })
@@ -127,8 +153,16 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
                 }
             }
         }
-        if (q.isNotBlank()) p["q"] = q.trim()
-        val liste: List<Tache> = pages("taches", p, max = 1000)
+        val cle = "interv_${filtre}_${if (filtre == "toutes") periode else "x"}_${if (filtre == "ouvertes" || filtre == "toutes") agentId ?: 0 else 0}"
+        val ser = ListSerializer(Tache.serializer())
+        val liste: List<Tache> = if (q.isBlank()) avecCache(cle, ser) { pages<Tache>("taches", p, max = 1000) }
+        else try { pages<Tache>("taches", p + ("q" to q.trim()), max = 1000) } catch (e: ApiException) {
+            // Hors ligne : recherche dans la dernière copie de la même vue.
+            val c = if (e.reseau) cache.lire(cle, ser) else null
+            if (c == null) throw e
+            etatReseau(c.second)
+            c.first.filter { it.titre.contains(q.trim(), true) || (it.reference ?: "").contains(q.trim(), true) }
+        }
         return if (recentDabord) liste else liste.reversed()
     }
 
@@ -166,14 +200,21 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     // ------------------------------------------------------------------ Parc
     suspend fun parc(q: String, statut: String?): List<Fiche> {
         val p = mutableMapOf<String, String>()
-        if (q.isNotBlank()) p["q"] = q.trim()
         if (!statut.isNullOrBlank()) p["statut"] = statut
-        return pages("materiel", p)
+        val cle = "parc_${statut ?: "tous"}"
+        val ser = ListSerializer(Fiche.serializer())
+        if (q.isBlank()) return avecCache(cle, ser) { pages<Fiche>("materiel", p) }
+        return try { pages<Fiche>("materiel", p + ("q" to q.trim())) } catch (e: ApiException) {
+            val c = if (e.reseau) cache.lire(cle, ser) else null
+            if (c == null) throw e
+            etatReseau(c.second)
+            c.first.filter { f -> listOfNotNull(f.libelle, f.marque, f.modele, f.numSerie, f.type).any { it.contains(q.trim(), true) } }
+        }
     }
 
-    suspend fun fiche(id: Int): Fiche = api.get("materiel/$id").data()
-    suspend fun affectations(id: Int): List<Affectation> = api.get("materiel/$id/affectations").data()
-    suspend fun pannesDuMateriel(id: Int): List<Tache> = api.get("materiel/$id/pannes").data()
+    suspend fun fiche(id: Int): Fiche = avecCache("fiche_$id", Fiche.serializer()) { api.get("materiel/$id").data() }
+    suspend fun affectations(id: Int): List<Affectation> = avecCache("affectations_$id", ListSerializer(Affectation.serializer())) { api.get("materiel/$id/affectations").data() }
+    suspend fun pannesDuMateriel(id: Int): List<Tache> = avecCache("pannes_materiel_$id", ListSerializer(Tache.serializer())) { api.get("materiel/$id/pannes").data() }
     suspend fun scanner(code: String): Fiche = api.get("materiel/scan", mapOf("code" to code)).data()
     suspend fun utilisateurs(): List<UtilisateurRef> = api.get("utilisateurs").data()
 
@@ -187,8 +228,13 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
     // ------------------------------------------------------------------ Notifications
     /** Les 50 dernières notifications, plus le nombre de non lues. */
     suspend fun notifications(): Pair<List<AppNotification>, Int> {
-        val r = api.get("notifications", mapOf("limit" to "50"))
-        return r.data<List<AppNotification>>() to (r["meta"]?.jsonObject?.get("non_lues")?.jsonPrimitive?.intOrNull ?: 0)
+        var nb: Int? = null
+        val liste = avecCache("notifications", ListSerializer(AppNotification.serializer())) {
+            val r = api.get("notifications", mapOf("limit" to "50"))
+            nb = r["meta"]?.jsonObject?.get("non_lues")?.jsonPrimitive?.intOrNull
+            r.data<List<AppNotification>>()
+        }
+        return liste to (nb ?: liste.count { !it.lue })
     }
 
     suspend fun marquerLues(ids: List<Long>) {
