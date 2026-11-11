@@ -50,6 +50,8 @@ import kotlinx.serialization.Serializable
     val declarant: Ref? = null, @SerialName("motif_attente") val motifAttente: String? = null,
     val dates: Dates = Dates(), val version: Int = 0, @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("date_relance") val dateRelance: String? = null, val sla: Sla = Sla(),
+    @SerialName("motif_cause") val motifCause: String? = null, @SerialName("date_limite") val dateLimite: String? = null,
+    @SerialName("actions_texte") val actionsTexte: String? = null,
     val actions: Actions = Actions(), val evenements: List<Evenement> = emptyList(),
 )
 

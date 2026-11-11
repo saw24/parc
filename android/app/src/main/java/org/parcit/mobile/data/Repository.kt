@@ -145,7 +145,10 @@ class Repository(private val ctx: Context, private val api: ApiClient, private v
         { x -> x.copy(
             titre = champs["titre"]?.jsonPrimitive?.contentOrNull ?: x.titre,
             description = if (champs.containsKey("description")) champs["description"]?.jsonPrimitive?.contentOrNull else x.description,
-            priorite = champs["priorite"]?.jsonPrimitive?.contentOrNull ?: x.priorite) },
+            priorite = champs["priorite"]?.jsonPrimitive?.contentOrNull ?: x.priorite,
+            motifCause = if (champs.containsKey("motif_cause")) champs["motif_cause"]?.jsonPrimitive?.contentOrNull else x.motifCause,
+            dateLimite = if (champs.containsKey("date_limite")) champs["date_limite"]?.jsonPrimitive?.contentOrNull else x.dateLimite,
+            actionsTexte = if (champs.containsKey("actions_texte")) champs["actions_texte"]?.jsonPrimitive?.contentOrNull else x.actionsTexte) },
     ) { api.patch("taches/${t.id}", JsonObject(champs + ("version" to JsonPrimitive(t.version)))) }
 
     suspend fun supprimerPanne(id: Int) { api.delete("taches/$id") }

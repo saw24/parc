@@ -14,11 +14,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.JsonNull
 import org.parcit.mobile.AppViewModel
 import org.parcit.mobile.data.*
 
 // ------------------------------------------------------------------ Modifier une panne
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EcranFormPanne(vm: AppViewModel) {
     val t = vm.detail ?: return
@@ -27,6 +29,27 @@ fun EcranFormPanne(vm: AppViewModel) {
     var desc by remember { mutableStateOf(t.description ?: "") }
     var prio by remember { mutableStateOf(t.priorite) }
     var service by remember(vm.referentiels) { mutableStateOf(vm.referentiels.services.firstOrNull { it.nom == t.service }) }
+    val statuts = listOf("À faire", "En cours", "En attente", "Terminé", "Annulé")
+    var statut by remember { mutableStateOf(t.statut) }
+    var motifAttente by remember { mutableStateOf(t.motifAttente ?: "") }
+    var relance by remember { mutableStateOf(t.dateRelance ?: "") }
+    var limite by remember { mutableStateOf(t.dateLimite ?: "") }
+    var cause by remember { mutableStateOf(t.motifCause ?: "") }
+    var actionsTxt by remember { mutableStateOf(t.actionsTexte ?: "") }
+    var agent by remember(vm.agents) { mutableStateOf(vm.agents.firstOrNull { it.id == t.assigne?.id }) }
+    var materiel by remember(vm.materiels) { mutableStateOf(vm.materiels.firstOrNull { it.id == t.materiel?.id }) }
+    var choixDate by remember { mutableStateOf<String?>(null) }
+    choixDate?.let { cible ->
+        val etat = rememberDatePickerState()
+        DatePickerDialog(onDismissRequest = { choixDate = null },
+            confirmButton = { TextButton({
+                etat.selectedDateMillis?.let { ms ->
+                    val d = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+                    if (cible == "limite") limite = d else relance = d
+                }
+                choixDate = null }) { Text("OK") } },
+            dismissButton = { TextButton({ if (cible == "limite") limite = "" else relance = ""; choixDate = null }) { Text("Effacer") } }) { DatePicker(etat) }
+    }
     Column(Modifier.fillMaxSize()) {
         EnTete("Modifier ${t.reference ?: "la panne"}", retour = { vm.retour() })
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -38,18 +61,41 @@ fun EcranFormPanne(vm: AppViewModel) {
                 niveaux.forEachIndexed { i, p -> SegmentedButton(prio == p, { prio = p }, SegmentedButtonDefaults.itemShape(i, niveaux.size), label = { Text(p) }) }
             }
             Choix("Service concerné *", vm.referentiels.services, service, { it.nom }) { service = it ?: service }
+            if (equipe) {
+                Choix("Matériel concerné", vm.materiels, materiel, { it.libelle }, optionnel = true) { materiel = it }
+                Choix("Statut", statuts, statut, { it }) { statut = it ?: statut }
+                if (statut == "En attente") {
+                    Champ(motifAttente, { motifAttente = it }, "Motif d'attente", minLignes = 2)
+                    OutlinedButton({ choixDate = "relance" }, Modifier.fillMaxWidth()) { Text(if (relance.isBlank()) "Date de relance" else "Relance : $relance") }
+                }
+                Choix("Assigné à", vm.agents, agent, { it.nom }) { agent = it ?: agent }
+                OutlinedButton({ choixDate = "limite" }, Modifier.fillMaxWidth()) { Text(if (limite.isBlank()) "Date limite" else "Date limite : $limite") }
+                Champ(cause, { cause = it }, "Motif / cause", minLignes = 2)
+                Champ(actionsTxt, { actionsTxt = it }, "Actions menées", minLignes = 3)
+            }
             if (!equipe) Text("Vous pouvez modifier une panne tant que le service IT ne l'a pas prise en charge.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
             Box(Modifier.padding(16.dp)) {
                 BoutonPrincipal("Enregistrer", {
-                    vm.modifierPanne(buildJsonObject {
+                    val champs = buildJsonObject {
                         if (titre.trim() != t.titre) put("titre", titre.trim())
                         if (desc.trim() != (t.description ?: "")) put("description", desc.trim())
                         if (prio != t.priorite) put("priorite", prio)
                         service?.let { if (it.nom != t.service) put("service_id", it.id) }
-                    })
+                        if (equipe) {
+                            materiel?.let { if (it.id != t.materiel?.id) put("materiel_id", it.id) }
+                            if (cause.trim() != (t.motifCause ?: "")) put("motif_cause", cause.trim())
+                            if (limite != (t.dateLimite ?: "")) put("date_limite", limite.ifBlank { null })
+                            if (actionsTxt.trim() != (t.actionsTexte ?: "")) put("actions_texte", actionsTxt.trim())
+                        }
+                    }
+                    if (!equipe) vm.modifierPanne(champs)
+                    else vm.modifierPanneComplet(champs,
+                        statut.takeIf { it != t.statut || (statut == "En attente" && (motifAttente != (t.motifAttente ?: "") || relance != (t.dateRelance ?: ""))) },
+                        motifAttente.trim().ifBlank { null }, relance.ifBlank { null },
+                        agent?.id?.takeIf { it != t.assigne?.id })
                 }, enabled = titre.isNotBlank() && service != null && !vm.chargement, icone = Icons.Rounded.Done)
             }
         }

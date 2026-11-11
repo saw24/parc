@@ -316,13 +316,24 @@ class AppViewModel(private val app: ParcApp) : ViewModel() {
     fun ouvrirFormPanne() {
         val t = detail ?: return
         ecran = Ecran.PanneForm(t.id)
-        lancer(chargeur = false) { referentiels = repo.referentiels() }
+        lancer(chargeur = false) { referentiels = repo.referentiels(); materiels = repo.mesMateriels(); agents = repo.agents() }
     }
 
     fun modifierPanne(champs: kotlinx.serialization.json.JsonObject) { val t = detail ?: return
         lancer {
             detail = repo.modifierPanne(t, champs); message = "Panne modifiée."
             ecran = Ecran.Detail(t.id)
+        } }
+
+    /** Édition complète (équipe) : champs, puis statut, puis affectation, chacun avec la version à jour. */
+    fun modifierPanneComplet(champs: kotlinx.serialization.json.JsonObject, statut: String?, motif: String?, relance: String?, assigneId: Int?) { val t0 = detail ?: return
+        lancer {
+            var t = t0
+            if (champs.isNotEmpty()) t = repo.modifierPanne(t, champs)
+            if (statut != null) t = repo.changerStatut(t, statut, motif, relance, null)
+            if (assigneId != null) t = repo.affecter(t, assigneId, null)
+            detail = t; message = "Panne modifiée."
+            ecran = Ecran.Detail(t0.id)
         } }
 
     fun supprimerPanne() { val t = detail ?: return
