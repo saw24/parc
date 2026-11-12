@@ -420,13 +420,18 @@ try {
     echo "Types de matériel, liste enrichie, actions menées\n";
     check('types : lecture avec referentiel.voir', api('GET', 'types_materiel', null, $A('gest'))[0] === 200);
     check('types : agent refusé', api('GET', 'types_materiel', null, $A('agent'))[0] === 403);
-    $r = api('POST', 'types_materiel', ['nom' => 'ZZ_V1_TYPE'], $A('gest'));
+    check('type : durée hors bornes → 422', api('POST', 'types_materiel', ['nom' => 'ZZ_V1_BAD', 'duree_vie_mois' => 3], $A('gest'))[0] === 422);
+    $r = api('POST', 'types_materiel', ['nom' => 'ZZ_V1_TYPE', 'duree_vie_mois' => 36], $A('gest'));
     $tid = $r[1]['data']['id'] ?? 0;
-    check('type créé', $r[0] === 201 && $tid > 0);
+    check('type créé avec sa durée de vie', $r[0] === 201 && $tid > 0 && $r[1]['data']['duree_vie_mois'] === 36);
+    $lt = array_values(array_filter(api('GET', 'types_materiel', null, $A('gest'))[1]['data'], fn($t) => $t['id'] === $tid))[0] ?? [];
+    check('type listé : durée, effective et nombre de matériels', ($lt['duree_vie_mois'] ?? 0) === 36 && ($lt['duree_vie_effective_mois'] ?? 0) === 36 && ($lt['nb_materiels'] ?? -1) === 0);
     check('type en double → 409', api('POST', 'types_materiel', ['nom' => 'ZZ_V1_TYPE'], $A('gest'))[0] === 409);
     $pdo->prepare("INSERT INTO t_materiel (type, statut, num_serie) VALUES ('ZZ_V1_TYPE', 'En service', 'ZZ_V1_TY')")->execute();
     check('type renommé : le matériel suit', api('PATCH', "types_materiel/$tid", ['nom' => 'ZZ_V1_TYPE2'], $A('gest'))[0] === 200
         && $pdo->query("SELECT type FROM t_materiel WHERE num_serie = 'ZZ_V1_TY'")->fetchColumn() === 'ZZ_V1_TYPE2');
+    check('type : durée effacée → défaut', api('PATCH', "types_materiel/$tid", ['nom' => 'ZZ_V1_TYPE2', 'duree_vie_mois' => null], $A('gest'))[0] === 200
+        && (array_values(array_filter(api('GET', 'types_materiel', null, $A('gest'))[1]['data'], fn($t) => $t['id'] === $tid))[0]['duree_vie_effective_mois'] ?? 0) === 60);
     check('type utilisé : suppression refusée', api('DELETE', "types_materiel/$tid", null, $A('gest'))[0] === 409);
     $pdo->exec("DELETE FROM t_materiel WHERE num_serie = 'ZZ_V1_TY'");
     check('type supprimé', api('DELETE', "types_materiel/$tid", null, $A('gest'))[0] === 200);

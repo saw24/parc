@@ -1323,3 +1323,6 @@ tbody tr:hover {
     opacity: 0;
   }
 }
+
+/* Boutons d'ajout des pages à création propre : déclenchés par le bouton flottant "+" */
+.fab-cible { display: none !important; }

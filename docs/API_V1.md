@@ -106,7 +106,7 @@ Permission : `renouvellement.voir`.
 |---|---|
 | `GET renouvellements/suggestions` | Matériel à renouveler selon les règles : fin de vie du type (`t_type_materiel.duree_vie_mois`, 60 mois par défaut), au moins 3 pannes sur 12 mois, ou garantie expirant sous 90 jours. Triées par `score` ; `meta.regles` donne les seuils. Exclut le matériel retiré. |
 
-`PATCH types_materiel/{id}` accepte `duree_vie_mois` (6 à 240) ; `GET types_materiel` le renvoie.
+CRUD des types : `GET/POST types_materiel`, `PATCH/DELETE types_materiel/{id}` (permissions `referentiel.voir` / `gerer` / `supprimer`). `POST` et `PATCH` acceptent `duree_vie_mois` (6 à 240, `null` = défaut) ; `GET` renvoie `duree_vie_mois`, `duree_vie_effective_mois`, `nb_materiels` et `meta.duree_vie_defaut_mois`. Suppression refusée (409) si des matériels utilisent le type.
 
 ## Maintenance préventive
 

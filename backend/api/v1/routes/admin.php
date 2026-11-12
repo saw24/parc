@@ -538,24 +538,28 @@ route('DELETE', 'services/{id}', function (array $c): void {
 
 route('GET', 'types_materiel', function (array $c): void {
     require_permission_v1($c['user'], 'referentiel.voir');
-    api_data(array_map(fn($r) => ['id' => (int) $r['id'], 'nom' => $r['type'], 'duree_vie_mois' => $r['duree_vie_mois'] !== null ? (int) $r['duree_vie_mois'] : null],
-        $c['pdo']->query("SELECT id, type, duree_vie_mois FROM t_type_materiel ORDER BY type")->fetchAll()));
+    api_data(array_map(fn($r) => ['id' => (int) $r['id'], 'nom' => $r['type'], 'duree_vie_mois' => $r['duree_vie_mois'] !== null ? (int) $r['duree_vie_mois'] : null,
+            'duree_vie_effective_mois' => $r['duree_vie_mois'] !== null ? (int) $r['duree_vie_mois'] : RENOUV_DUREE_VIE_DEFAUT, 'nb_materiels' => (int) $r['nb']],
+        $c['pdo']->query("SELECT t.id, t.type, t.duree_vie_mois, (SELECT COUNT(*) FROM t_materiel m WHERE m.type = t.type) AS nb FROM t_type_materiel t ORDER BY t.type")->fetchAll()),
+        ['duree_vie_defaut_mois' => RENOUV_DUREE_VIE_DEFAUT]);
 });
 
 route('POST', 'types_materiel', function (array $c): void {
     require_permission_v1($c['user'], 'referentiel.gerer');
     $nom = api_str($c['body'], 'nom', true, 100);
+    $duree = api_int($c['body'], 'duree_vie_mois');
+    if ($duree !== null && ($duree < 6 || $duree > 240)) { api_fail(422, 'champ_invalide', 'La durée de vie doit être comprise entre 6 et 240 mois.', ['champ' => 'duree_vie_mois']); }
     $dup = $c['pdo']->prepare("SELECT 1 FROM t_type_materiel WHERE lower(type) = lower(?)");
     $dup->execute([$nom]);
     if ($dup->fetchColumn()) { api_fail(409, 'nom_existant', 'Ce type existe déjà.'); }
     try {
-        $st = $c['pdo']->prepare("INSERT INTO t_type_materiel (type) VALUES (?) RETURNING id");
-        $st->execute([$nom]);
+        $st = $c['pdo']->prepare("INSERT INTO t_type_materiel (type, duree_vie_mois) VALUES (?, ?) RETURNING id");
+        $st->execute([$nom, $duree]);
     } catch (PDOException $e) {
         if ($e->getCode() === '23505') { api_fail(409, 'nom_existant', 'Ce type existe déjà.'); }
         throw $e;
     }
-    api_data(['id' => (int) $st->fetchColumn(), 'nom' => $nom], [], 201);
+    api_data(['id' => (int) $st->fetchColumn(), 'nom' => $nom, 'duree_vie_mois' => $duree], [], 201);
 });
 
 route('PATCH', 'types_materiel/{id}', function (array $c): void {
@@ -582,7 +586,7 @@ route('PATCH', 'types_materiel/{id}', function (array $c): void {
         if ($e->getCode() === '23505') { api_fail(409, 'nom_existant', 'Un autre type porte déjà ce nom.'); }
         throw $e;
     }
-    api_data(['id' => $id, 'nom' => $nom]);
+    api_data(['id' => $id, 'nom' => $nom, 'duree_vie_mois' => array_key_exists('duree_vie_mois', $c['body']) ? $duree : null]);
 });
 
 route('DELETE', 'types_materiel/{id}', function (array $c): void {

@@ -70,6 +70,12 @@
                     </a>
                 </li>
                 <li>
+                    <a href="#types-materiel" data-title="Types de matériel">
+                        <i class="fas fa-layer-group"></i>
+                        Types de matériel
+                    </a>
+                </li>
+                <li>
                     <a href="#renouvellement" data-title="Renouvellement du matériel">
                         <i class="fas fa-recycle"></i>
                         Renouvellement
@@ -656,10 +662,6 @@
                         <input type="text" id="utilisateurs-search" placeholder="Rechercher un utilisateur par nom ou login...">
                         <i class="fas fa-search"></i>
                     </div>
-                    <button id="add-utilisateur-btn" class="btn btn-primary">
-                        <i class="fas fa-plus"></i>
-                        Ajouter un utilisateur
-                    </button>
                 </div>
                 <div class="table-container">
                     <table id="utilisateurs-table">
@@ -722,41 +724,27 @@
             <!-- =================== PAGE: MAINTENANCE PRÉVENTIVE =================== -->
             <main id="maintenance-page" class="page-content">
                 <div class="controls-bar">
-                    <button class="btn btn-primary" id="maint-nouveau"><i class="fas fa-plus"></i> Nouveau plan</button>
+                    <button class="btn btn-primary fab-cible" id="maint-nouveau"><i class="fas fa-plus"></i> Nouveau plan</button>
                     <button class="btn" id="maint-generer" title="Crée tout de suite les tâches des plans dont l'échéance approche"><i class="fas fa-play"></i> Générer maintenant</button>
                     <span class="field-hint" id="maint-statut"></span>
                 </div>
-                <form id="maint-form" style="display:none; margin:12px 0; padding:16px; border:1px solid var(--border-color, #d9dee8); border-radius:10px">
-                    <input type="hidden" id="maint-id">
-                    <div class="form-row">
-                        <div class="form-group"><label for="maint-titre">Titre *</label><input type="text" id="maint-titre" maxlength="200" required placeholder="Ex. Nettoyage et contrôle des postes"></div>
-                        <div class="form-group"><label for="maint-priorite">Priorité</label>
-                            <select id="maint-priorite"><option>Basse</option><option selected>Moyenne</option><option>Haute</option></select></div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group"><label for="maint-cible-type">Cible *</label>
-                            <select id="maint-cible-type"><option value="type">Tous les matériels d'un type</option><option value="materiel">Un matériel précis</option></select></div>
-                        <div class="form-group"><label for="maint-cible">&nbsp;</label><select id="maint-cible"></select></div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group"><label for="maint-valeur">Répéter tous les *</label><input type="number" id="maint-valeur" min="1" max="120" value="6"></div>
-                        <div class="form-group"><label for="maint-unite">Unité</label>
-                            <select id="maint-unite"><option value="jour">jour(s)</option><option value="semaine">semaine(s)</option><option value="mois" selected>mois</option><option value="an">an(s)</option></select></div>
-                        <div class="form-group"><label for="maint-echeance">Prochaine échéance *</label><input type="date" id="maint-echeance" required></div>
-                        <div class="form-group"><label for="maint-anticipation">Créer la tâche (jours avant)</label><input type="number" id="maint-anticipation" min="0" max="120" value="7"></div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group"><label for="maint-assigne">Assigné à</label><select id="maint-assigne"><option value="">File Service IT</option></select></div>
-                        <div class="form-group"><label for="maint-actif">Actif</label><select id="maint-actif"><option value="1">Oui</option><option value="0">Non (suspendu)</option></select></div>
-                    </div>
-                    <div class="form-group"><label for="maint-checklist">Points à vérifier (un par ligne)</label><textarea id="maint-checklist" rows="3"></textarea></div>
-                    <div class="form-group"><label for="maint-description">Description</label><textarea id="maint-description" rows="2"></textarea></div>
-                    <button type="submit" class="btn btn-primary">Enregistrer</button>
-                    <button type="button" class="btn" id="maint-annuler">Annuler</button>
-                </form>
                 <div class="table-container">
                     <table id="maint-table">
                         <thead><tr><th>Plan</th><th>Cible</th><th>Périodicité</th><th>Prochaine échéance</th><th>Assigné</th><th>État</th><th>Actions</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </main>
+            <!-- =================== PAGE: TYPES DE MATÉRIEL =================== -->
+            <main id="types-materiel-page" class="page-content">
+                <div class="controls-bar">
+                    <button class="btn btn-primary fab-cible" id="type-nouveau"><i class="fas fa-plus"></i> Nouveau type</button>
+                    <span class="field-hint" id="type-statut"></span>
+                </div>
+                <p class="field-hint">La durée de vie sert aux suggestions de renouvellement : un matériel qui dépasse la durée de son type est proposé au renouvellement.</p>
+                <div class="table-container">
+                    <table id="types-table">
+                        <thead><tr><th>Type</th><th>Durée de vie</th><th>Matériels</th><th>Actions</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
@@ -779,7 +767,7 @@
             <!-- =================== PAGE: RÔLES ET PERMISSIONS =================== -->
             <main id="roles-page" class="page-content">
                 <div class="controls-bar">
-                    <button class="btn btn-primary" id="role-nouveau"><i class="fas fa-plus"></i> Nouveau rôle</button>
+                    <button class="btn btn-primary fab-cible" id="role-nouveau"><i class="fas fa-plus"></i> Nouveau rôle</button>
                     <span class="field-hint" id="roles-statut"></span>
                 </div>
                 <div class="table-container">
@@ -1169,6 +1157,63 @@
                 </div>
             </div>
         </div>
+        <div id="type-modal" class="modal">
+            <div class="modal-content modal-content--sm">
+                <div class="modal-header"><h2 id="type-modal-titre">Type de matériel</h2><button class="close-button" id="type-fermer">&times;</button></div>
+                <div class="modal-body">
+                    <form id="type-form">
+                        <input type="hidden" id="type-id">
+                        <div class="form-group"><label for="type-nom">Nom du type *</label><input type="text" id="type-nom" maxlength="100" required placeholder="Ex. Ordinateur portable"></div>
+                        <div class="form-group"><label for="type-duree">Durée de vie (en années)</label>
+                            <input type="number" id="type-duree" min="0.5" max="20" step="0.5" placeholder="Vide = valeur par défaut">
+                            <small class="field-hint" id="type-duree-aide"></small></div>
+                        <div class="field-hint" id="type-erreur" style="color:var(--color-danger,#dc2626)"></div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="type-annuler">Annuler</button>
+                    <button class="btn btn-primary" id="type-enregistrer">Enregistrer</button>
+                </div>
+            </div>
+        </div>
+        <div id="maint-modal" class="modal">
+            <div class="modal-content modal-content--lg">
+                <div class="modal-header"><h2 id="maint-modal-titre">Plan de maintenance</h2><button class="close-button" id="maint-fermer">&times;</button></div>
+                <div class="modal-body">
+                    <form id="maint-form">
+                    <input type="hidden" id="maint-id">
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-titre">Titre *</label><input type="text" id="maint-titre" maxlength="200" required placeholder="Ex. Nettoyage et contrôle des postes"></div>
+                        <div class="form-group"><label for="maint-priorite">Priorité</label>
+                            <select id="maint-priorite"><option>Basse</option><option selected>Moyenne</option><option>Haute</option></select></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-cible-type">Cible *</label>
+                            <select id="maint-cible-type"><option value="type">Tous les matériels d'un type</option><option value="materiel">Un matériel précis</option></select></div>
+                        <div class="form-group"><label for="maint-cible">&nbsp;</label><select id="maint-cible"></select></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-valeur">Répéter tous les *</label><input type="number" id="maint-valeur" min="1" max="120" value="6"></div>
+                        <div class="form-group"><label for="maint-unite">Unité</label>
+                            <select id="maint-unite"><option value="jour">jour(s)</option><option value="semaine">semaine(s)</option><option value="mois" selected>mois</option><option value="an">an(s)</option></select></div>
+                        <div class="form-group"><label for="maint-echeance">Prochaine échéance *</label><input type="date" id="maint-echeance" required></div>
+                        <div class="form-group"><label for="maint-anticipation">Créer la tâche (jours avant)</label><input type="number" id="maint-anticipation" min="0" max="120" value="7"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="maint-assigne">Assigné à</label><select id="maint-assigne"><option value="">File Service IT</option></select></div>
+                        <div class="form-group"><label for="maint-actif">Actif</label><select id="maint-actif"><option value="1">Oui</option><option value="0">Non (suspendu)</option></select></div>
+                    </div>
+                    <div class="form-group"><label for="maint-checklist">Points à vérifier (un par ligne)</label><textarea id="maint-checklist" rows="3"></textarea></div>
+                    <div class="form-group"><label for="maint-description">Description</label><textarea id="maint-description" rows="2"></textarea></div>
+                        <div class="field-hint" id="maint-erreur" style="color:var(--color-danger,#dc2626)"></div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="maint-annuler">Annuler</button>
+                    <button class="btn btn-primary" id="maint-enregistrer">Enregistrer</button>
+                </div>
+            </div>
+        </div>
         <div id="role-modal" class="modal">
             <div class="modal-content">
                 <div class="modal-header"><h2 id="role-modal-titre">Rôle</h2><button class="close-button" id="role-fermer">&times;</button></div>
@@ -1193,6 +1238,7 @@
         <script src="assets/js/script.js"></script>
         <script src="assets/js/roles.js"></script>
         <script src="assets/js/renouvellement.js"></script>
+        <script src="assets/js/types-materiel.js"></script>
         <script src="assets/js/maintenance.js"></script>
     </body>
 </html>

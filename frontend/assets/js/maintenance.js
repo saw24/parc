@@ -53,17 +53,21 @@ $(function () {
             $('#maint-assigne').val(p.assigne ? p.assigne.id : ''); $('#maint-actif').val(p.actif ? '1' : '0');
             $('#maint-checklist').val(p.checklist || ''); $('#maint-description').val(p.description || '');
         }
-        $('#maint-form').show();
+        $('#maint-modal-titre').text(p ? 'Modifier le plan' : 'Nouveau plan de maintenance');
+        $('#maint-erreur').text('');
+        $('#maint-modal').css('display', 'flex');
+        $('#maint-titre').trigger('focus');
     }
+    const fermer = () => $('#maint-modal').hide();
 
     $('.sidebar-menu a[href="#maintenance"]').on('click', function () { chargerRef().always(charger); });
     $('#maint-cible-type').on('change', () => remplirCible());
     $('#maint-nouveau').on('click', () => ouvrir(null));
-    $('#maint-annuler').on('click', () => $('#maint-form').hide());
+    $('#maint-fermer, #maint-annuler').on('click', (e) => { e.preventDefault(); fermer(); });
     $(document).on('click', '.maint-edit', function () { ouvrir(plans.find(p => p.id === Number($(this).data('id')))); });
 
-    $('#maint-form').on('submit', function (e) {
-        e.preventDefault();
+    function enregistrer() {
+        if (!$('#maint-form')[0].reportValidity()) { return; }
         const id = $('#maint-id').val(), parType = $('#maint-cible-type').val() === 'type';
         const corps = {
             titre: $('#maint-titre').val().trim(), priorite: $('#maint-priorite').val(),
@@ -74,8 +78,10 @@ $(function () {
             checklist: $('#maint-checklist').val().trim() || null, description: $('#maint-description').val().trim() || null
         };
         (id ? v1('PATCH', 'maintenance/plans/' + id, corps) : v1('POST', 'maintenance/plans', corps))
-            .done(() => { $('#maint-form').hide(); charger(); }).fail(xhr => alert(erreur(xhr)));
-    });
+            .done(() => { fermer(); charger(); }).fail(xhr => $('#maint-erreur').text(erreur(xhr)));
+    }
+    $('#maint-enregistrer').on('click', function (e) { e.preventDefault(); enregistrer(); });
+    $('#maint-form').on('submit', function (e) { e.preventDefault(); enregistrer(); });
 
     $(document).on('click', '.maint-del', function () {
         if (!confirm('Supprimer ce plan ? Les tâches déjà créées sont conservées.')) { return; }

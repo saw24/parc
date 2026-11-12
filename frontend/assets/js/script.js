@@ -1450,6 +1450,8 @@ $(document).ready(function () {
         });
     }
 
+    window.loadTypeMaterielInSelects = loadTypeMaterielInSelects;   // rafraîchi par l'écran « Types de matériel »
+
     // Fonction pour charger les services dans les selects
     function loadServicesInSelects() {
         $.ajax({
@@ -2605,8 +2607,23 @@ $(document).ready(function () {
     }
 
     // Logique d'ouverture de la modale (intelligente)
+    // Le bouton "+" ajoute un élément dans tous les modules : les pages à création propre
+    // (maintenance, types de matériel, rôles…) exposent un bouton `.fab-cible` (masqué en CSS)
+    // sur lequel il clique ; les pages sans création (renouvellement, paramètres) masquent le "+".
+    function majFab() {
+        const $page = $('.page-content.active');
+        const id = ($page.attr('id') || '').replace('-page', '');
+        const sansAjout = ['renouvellement', 'parametres'].indexOf(id) !== -1;
+        $('#fab').toggle(!sansAjout);
+    }
+    new MutationObserver(majFab).observe(document.querySelector('main.page-content') ? document.querySelector('main.page-content').parentNode : document.body,
+        { subtree: true, attributes: true, attributeFilter: ['class'] });
+    majFab();
+
     $('#fab').on('click', function (e) {
         e.preventDefault();
+        const $cible = $('.page-content.active .fab-cible').first();
+        if ($cible.length) { $cible.trigger('click'); return; }
         let context = $('.page-content.active').attr('id').replace('-page', '');
         // Le tableau de bord n'a pas de formulaire propre : le bouton "+" y ouvre
         // la création de tâche (action la plus courante depuis cette page).
